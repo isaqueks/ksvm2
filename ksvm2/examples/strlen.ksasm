@@ -1,0 +1,54 @@
+; strlen.ksasm — percorre uma tabela de ponteiros para strings e mede cada uma.
+;
+; Saída esperada:
+;   "KSVM" tem 4 bytes
+;   "" tem 0 bytes
+;   "assembler" tem 9 bytes
+
+        .text
+        .global _start
+_start:
+        la      r16, strings        ; cursor na tabela de ponteiros
+next:
+        ldw     r17, [r16]          ; ponteiro da string; 0 encerra
+        cmpi    r17, 0
+        beq     done
+        li      r1, '"'
+        syscall PUTC
+        mov     r1, r17
+        call    print_str
+        la      r1, s_tem
+        call    print_str
+        mov     r1, r17
+        call    strlen
+        call    print_u32
+        la      r1, s_bytes
+        call    print_str
+        addi    r16, r16, 4
+        b       next
+done:
+        li      r1, 0
+        halt
+
+; strlen(r1 = ponteiro) -> r1 = bytes antes do '\0'. Usa r5, r6.
+strlen:
+        mov     r5, r1
+sl_loop:
+        ldb     r6, [r5]            ; loads não alteram flags
+        cmpi    r6, 0
+        beq     sl_end
+        inc     r5
+        b       sl_loop
+sl_end:
+        sub     r1, r5, r1
+        ret
+
+        .rodata
+strings: .word  s_ksvm, s_empty, s_asm, 0
+s_ksvm:  .asciz "KSVM"
+s_empty: .asciz ""
+s_asm:   .asciz "assembler"
+s_tem:   .asciz "\" tem "
+s_bytes: .asciz " bytes\n"
+
+        .include "lib/io.ksasm"

@@ -1,0 +1,70 @@
+; lib/io.ksasm — rotinas de saída compartilhadas pelos exemplos.
+; Uso: .include "lib/io.ksasm" (no fim do programa).
+;
+; Convenção (doc 04 §1): argumento em r1; r1..r15 podem ser destruídos;
+; r16..r29, fp e sp são preservados. As syscalls devolvem r1/r2.
+
+        .text
+
+; print_str(r1 = ponteiro para string terminada em '\0'). Usa r1, r2, r5, r6.
+print_str:
+        mov     r5, r1
+ps_len:
+        ldb     r6, [r5]
+        cmpi    r6, 0
+        beq     ps_out
+        inc     r5
+        b       ps_len
+ps_out:
+        sub     r2, r5, r1          ; comprimento
+        syscall PUTS                ; r1 = ponteiro, r2 = comprimento
+        ret
+
+; print_u32(r1 = valor): decimal sem sinal. Usa r1, r2, r5..r7.
+print_u32:
+        subi    sp, sp, 12          ; buffer na pilha (10 dígitos bastam)
+        addi    r5, sp, 12          ; escreve de trás para frente
+        li      r6, 10
+pu_digit:
+        remu    r7, r1, r6
+        addi    r7, r7, '0'
+        dec     r5
+        stb     [r5], r7
+        divu    r1, r1, r6
+        cmpi    r1, 0
+        bne     pu_digit
+        addi    r2, sp, 12
+        sub     r2, r2, r5          ; quantidade de dígitos
+        mov     r1, r5
+        syscall PUTS
+        addi    sp, sp, 12
+        ret
+
+; print_hex(r1 = valor): "0x" + 8 dígitos hexadecimais. Usa r1, r2, r5, r6.
+print_hex:
+        mov     r5, r1
+        li      r1, '0'
+        syscall PUTC
+        li      r1, 'x'
+        syscall PUTC
+        li      r6, 28              ; deslocamento do nibble mais alto
+ph_nibble:
+        shr     r1, r5, r6
+        andi    r1, r1, 0xF
+        cmpi    r1, 10
+        blo     ph_decimal
+        addi    r1, r1, 'A' - 10
+        b       ph_put
+ph_decimal:
+        addi    r1, r1, '0'
+ph_put:
+        syscall PUTC
+        subi    r6, r6, 4
+        bge     ph_nibble           ; SUBI já deixou as flags de r6 - 4
+        ret
+
+; newline(): imprime '\n'. Usa r1, r2.
+newline:
+        li      r1, '\n'
+        syscall PUTC
+        ret

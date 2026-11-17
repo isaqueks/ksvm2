@@ -1,0 +1,19 @@
+; hello.ksasm — imprime uma saudação com a syscall PUTS.
+;
+; Saída esperada:
+;   Hello, KSVM!
+;
+; Montar e rodar:  ksas examples/hello.ksasm -o hello.ksx && ksvm hello.ksx
+
+        .text
+        .global _start
+_start:
+        la      r1, msg             ; r1 = ponteiro (endereço em .rodata, na região CODE)
+        li      r2, msg_len         ; r2 = comprimento
+        syscall PUTS
+        li      r1, 0               ; código de saída
+        halt
+
+        .rodata
+msg:    .ascii  "Hello, KSVM!\n"
+msg_len = . - msg                   ; diferença de labels: constante

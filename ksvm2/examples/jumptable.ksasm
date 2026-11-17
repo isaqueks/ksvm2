@@ -1,0 +1,61 @@
+; jumptable.ksasm — "switch" com tabela de endereços em .rodata e salto
+; indireto (JMPR). Índices fora da tabela caem no caso padrão.
+;
+; Saída esperada:
+;   0: zero
+;   1: um
+;   2: dois
+;   3: tres
+;   4: outro
+;   5: outro
+
+        .text
+        .global _start
+_start:
+        clr     r16                 ; i
+loop:
+        mov     r1, r16
+        call    print_u32
+        la      r1, s_sep
+        call    print_str
+        cmpi    r16, NCASES         ; NCASES é definido lá embaixo
+        bhs     case_default
+        la      r5, table
+        shli    r6, r16, 2          ; i * 4
+        ldw     r7, [r5 + r6]       ; LDWX: endereço do caso
+        jmpr    r7
+
+case_zero:
+        la      r1, s_zero
+        b       show
+case_one:
+        la      r1, s_one
+        b       show
+case_two:
+        la      r1, s_two
+        b       show
+case_three:
+        la      r1, s_three
+        b       show
+case_default:
+        la      r1, s_other
+show:
+        call    print_str
+        call    newline
+        inc     r16
+        cmpi    r16, 6
+        blo     loop
+        li      r1, 0
+        halt
+
+        .rodata
+table:  .word   case_zero, case_one, case_two, case_three
+NCASES = (. - table) / 4            ; tamanho da tabela calculado pelo assembler
+s_sep:   .asciz ": "
+s_zero:  .asciz "zero"
+s_one:   .asciz "um"
+s_two:   .asciz "dois"
+s_three: .asciz "tres"
+s_other: .asciz "outro"
+
+        .include "lib/io.ksasm"

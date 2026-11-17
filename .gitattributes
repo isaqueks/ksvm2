@@ -1,0 +1,4 @@
+# Tudo em LF: Makefile, scripts e fontes sao usados pelo WSL/Linux.
+* text=auto eol=lf
+*.png binary
+*.ksx binary

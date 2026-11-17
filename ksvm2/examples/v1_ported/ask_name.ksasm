@@ -1,0 +1,52 @@
+; ask_name.ksasm — porte de ksvm/examples/ask_name.ksasm (v1) para a sintaxe v2.
+; Pergunta o nome, lê uma linha (GETS) e a imprime de volta.
+;
+; Na v1 PRINT/READLINE montavam uma syscall write/read do Linux; na v2 viram
+; as syscalls portáveis PUTS/GETS (doc 06). O "$ xFF xFF" que encerrava o
+; programa vira HALT.
+;
+; Saída esperada (com a entrada "Isaque\n"):
+;   Type your name: Your name is Isaque
+
+        .text
+        .global _start
+_start:
+        la      r1, message
+        li      r2, message_len
+        call    print
+
+        la      r1, buffer
+        li      r2, BUFFER_LEN
+        call    readline
+        mov     r16, r1             ; bytes lidos (inclui o '\n')
+
+        la      r1, message_2
+        li      r2, message_2_len
+        call    print
+
+        la      r1, buffer
+        mov     r2, r16
+        call    print
+
+        li      r1, 0
+        halt
+
+; print(r1 = mensagem, r2 = comprimento)
+print:
+        syscall PUTS
+        ret
+
+; readline(r1 = buffer, r2 = tamanho) -> r1 = bytes lidos
+readline:
+        syscall GETS
+        ret
+
+        .rodata
+message:    .ascii "Type your name: "
+message_len = . - message
+message_2:  .ascii "Your name is "
+message_2_len = . - message_2
+
+BUFFER_LEN = 16
+        .bss
+buffer: .space  BUFFER_LEN

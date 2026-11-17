@@ -1,0 +1,21 @@
+# Projeto antigo (repositório próprio, mantido só como referência local)
+ksvm/
+
+# Artefatos de build
+ksvm2/build/
+*.o
+*.a
+*.elf
+*.hex
+*.map
+*.exe
+*.ksx
+*.lst
+__pycache__/
+
+# Editores / SO
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

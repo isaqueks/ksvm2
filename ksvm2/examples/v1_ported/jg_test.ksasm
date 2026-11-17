@@ -1,0 +1,91 @@
+; jg_test.ksasm — porte de ksvm/examples/jg_test.ksasm (v1).
+; Compara pares de números e imprime a primeira relação que vale, testando
+; na ordem da v1: maior (JG), maior ou igual (JGE), menor (JL), menor ou
+; igual (JLE). Na v1 os desvios caíam em rotinas que terminavam em RET sem
+; CALL; aqui cada caso imprime e volta ao laço.
+;
+; Saída esperada:
+;   18 to 20
+;   Greater
+;   22 to 20
+;   Greater
+;   20 to 20
+;   Greater or equal
+
+        .text
+        .global _start
+_start:
+        la      r1, m_18_20
+        call    print
+        li      r1, 20
+        li      r2, 18
+        call    compare
+
+        la      r1, m_22_20
+        call    print
+        li      r1, 22
+        li      r2, 20
+        call    compare
+
+        la      r1, m_20_20
+        call    print
+        li      r1, 20
+        li      r2, 20
+        call    compare
+
+        li      r1, 0
+        halt
+
+; compare(r1 = a, r2 = b): imprime a relação a ? b (com sinal).
+compare:
+        cmp     r1, r2
+        bgt     print_greater
+        bge     print_greater_equal
+        blt     print_less
+        ble     print_less_equal
+        ret
+print_greater:
+        la      r1, m_greater
+        b       print               ; chamada de cauda: o RET de print volta ao chamador
+print_greater_equal:
+        la      r1, m_greater_equal
+        b       print
+print_less:
+        la      r1, m_less
+        b       print
+print_less_equal:
+        la      r1, m_less_equal
+        b       print
+
+; strlen(r1 = ponteiro) -> r1 = comprimento
+strlen:
+        mov     r5, r1
+strlen_loop:
+        ldb     r6, [r5]
+        cmpi    r6, 0
+        beq     strlen_done
+        inc     r5
+        b       strlen_loop
+strlen_done:
+        sub     r1, r5, r1
+        ret
+
+; print(r1 = string terminada em '\0')
+print:
+        push    r16
+        mov     r16, r1
+        call    strlen
+        mov     r2, r1
+        mov     r1, r16
+        syscall PUTS
+        pop     r16
+        ret
+
+        .rodata
+m_greater:       .asciz "Greater\n"
+m_greater_equal: .asciz "Greater or equal\n"
+m_less:          .asciz "Less\n"
+m_less_equal:    .asciz "Less or equal\n"
+m_18_20:         .asciz "18 to 20\n"
+m_20_20:         .asciz "20 to 20\n"
+m_22_20:         .asciz "22 to 20\n"

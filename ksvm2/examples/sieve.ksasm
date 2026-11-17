@@ -1,0 +1,48 @@
+; sieve.ksasm — crivo de Eratóstenes: primos menores que N, com o vetor em .bss.
+;
+; Saída esperada:
+;   2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71 73 79 83 89 97
+
+N = 100
+
+        .text
+        .global _start
+_start:
+        la      r16, composite      ; vetor de N bytes, zerado pelo loader
+        li      r17, 2              ; i
+        clr     r19                 ; 0 até o primeiro primo (controla o separador)
+outer:
+        cmpi    r17, N
+        bhs     done
+        ldb     r5, [r16 + r17]     ; vira LDBX: índice em registrador
+        cmpi    r5, 0
+        bne     next_i              ; já marcado como composto
+        cmpi    r19, 0
+        beq     no_sep
+        li      r1, ' '
+        syscall PUTC
+no_sep:
+        li      r19, 1
+        mov     r1, r17
+        call    print_u32
+        mul     r18, r17, r17       ; j = i * i
+        li      r6, 1
+mark:
+        cmpi    r18, N
+        bhs     next_i
+        stb     [r16 + r18], r6     ; STBX
+        add     r18, r18, r17
+        b       mark
+next_i:
+        inc     r17
+        b       outer
+done:
+        call    newline
+        li      r1, 0
+        halt
+
+        .bss
+composite:
+        .space  N
+
+        .include "lib/io.ksasm"

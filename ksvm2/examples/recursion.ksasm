@@ -1,0 +1,65 @@
+; recursion.ksasm — recursão com frames na pilha: call/ret, push/pop e fp.
+;
+; Saída esperada:
+;   10! = 3628800
+;   fib(20) = 6765
+
+        .text
+        .global _start
+_start:
+        la      r1, s_fact
+        call    print_str
+        li      r1, 10
+        call    fact
+        call    print_u32
+        call    newline
+
+        la      r1, s_fib
+        call    print_str
+        li      r1, 20
+        call    fib
+        call    print_u32
+        call    newline
+
+        li      r1, 0
+        halt
+
+; fact(r1 = n) -> r1 = n!  Frame clássico com fp; n fica em r16 (callee-saved).
+fact:
+        push    fp, r16             ; pseudo: dois PUSH
+        mov     fp, sp
+        mov     r16, r1
+        cmpi    r1, 1
+        bls     fact_base           ; n <= 1 (sem sinal)
+        subi    r1, r1, 1
+        call    fact
+        mul     r1, r1, r16         ; n * (n-1)!
+        b       fact_ret
+fact_base:
+        li      r1, 1
+fact_ret:
+        mov     sp, fp
+        pop     r16, fp             ; ordem inversa do push
+        ret
+
+; fib(r1 = n) -> r1 = fib(n). Recursão dupla ingênua (~22 mil chamadas).
+fib:
+        push    r16, r17
+        cmpi    r1, 2
+        blo     fib_ret             ; fib(0) = 0, fib(1) = 1
+        mov     r16, r1
+        subi    r1, r1, 1
+        call    fib
+        mov     r17, r1             ; fib(n - 1)
+        subi    r1, r16, 2
+        call    fib
+        add     r1, r1, r17         ; + fib(n - 2)
+fib_ret:
+        pop     r17, r16
+        ret
+
+        .rodata
+s_fact: .asciz  "10! = "
+s_fib:  .asciz  "fib(20) = "
+
+        .include "lib/io.ksasm"

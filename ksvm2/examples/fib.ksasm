@@ -1,0 +1,30 @@
+; fib.ksasm — os 20 primeiros números de Fibonacci (laço iterativo).
+;
+; Saída esperada:
+;   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584 4181
+
+COUNT = 20
+
+        .text
+        .global _start
+_start:
+        clr     r16                 ; a = 0  (r16..r29 sobrevivem às chamadas)
+        li      r17, 1              ; b = 1
+        li      r18, COUNT          ; quantos faltam
+loop:
+        mov     r1, r16
+        call    print_u32
+        dec     r18                 ; SUBI atualiza Z
+        beq     done
+        li      r1, ' '
+        syscall PUTC
+        add     r19, r16, r17       ; próximo = a + b
+        mov     r16, r17
+        mov     r17, r19
+        b       loop
+done:
+        call    newline
+        li      r1, 0
+        halt
+
+        .include "lib/io.ksasm"

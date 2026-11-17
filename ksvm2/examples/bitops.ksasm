@@ -1,0 +1,93 @@
+; bitops.ksasm — operações de bits: popcnt, clz, ctz, rotações, deslocamentos,
+; e imediatos que não cabem em 14 bits (o assembler escolhe a forma L).
+;
+; Saída esperada:
+;   popcnt(0xF0F0F0F0) = 16
+;   clz(0x00010000) = 15
+;   ctz(0x00010000) = 16
+;   rol(0x80000001, 4) = 0x00000018
+;   ror(0x80000001, 4) = 0x18000000
+;   sar(0x80000000, 4) = 0xF8000000
+;   shr(0x80000000, 4) = 0x08000000
+;   0x12345678 & 0xFFFF = 0x00005678
+;   0x12345678 ^ -1 = 0xEDCBA987
+
+        .text
+        .global _start
+_start:
+        la      r1, s_popcnt
+        call    print_str
+        li      r5, 0xF0F0_F0F0     ; não cabe em imm14: vira MOVIL
+        popcnt  r1, r5
+        call    print_u32
+        call    newline
+
+        la      r1, s_clz
+        call    print_str
+        li      r5, 0x0001_0000
+        clz     r1, r5
+        call    print_u32
+        call    newline
+
+        la      r1, s_ctz
+        call    print_str
+        li      r5, 0x0001_0000
+        ctz     r1, r5
+        call    print_u32
+        call    newline
+
+        li      r16, 0x8000_0001
+        li      r17, 4              ; contagem nos registradores (ROL/ROR só têm forma R)
+        la      r1, s_rol
+        call    print_str
+        rol     r1, r16, r17
+        call    print_hex
+        call    newline
+
+        la      r1, s_ror
+        call    print_str
+        ror     r1, r16, r17
+        call    print_hex
+        call    newline
+
+        li      r16, 0x8000_0000
+        la      r1, s_sar
+        call    print_str
+        sar     r1, r16, 4          ; mnemônico R com imediato: vira SARI
+        call    print_hex
+        call    newline
+
+        la      r1, s_shr
+        call    print_str
+        shri    r1, r16, 4
+        call    print_hex
+        call    newline
+
+        li      r16, 0x1234_5678
+        la      r1, s_and
+        call    print_str
+        and     r1, r16, 0xFFFF     ; 65535 não cabe em imm14: vira ANDL
+        call    print_hex
+        call    newline
+
+        la      r1, s_xor
+        call    print_str
+        xor     r1, r16, -1         ; -1 cabe em imm14: XORI (estende o sinal)
+        call    print_hex
+        call    newline
+
+        li      r1, 0
+        halt
+
+        .rodata
+s_popcnt: .asciz "popcnt(0xF0F0F0F0) = "
+s_clz:    .asciz "clz(0x00010000) = "
+s_ctz:    .asciz "ctz(0x00010000) = "
+s_rol:    .asciz "rol(0x80000001, 4) = "
+s_ror:    .asciz "ror(0x80000001, 4) = "
+s_sar:    .asciz "sar(0x80000000, 4) = "
+s_shr:    .asciz "shr(0x80000000, 4) = "
+s_and:    .asciz "0x12345678 & 0xFFFF = "
+s_xor:    .asciz "0x12345678 ^ -1 = "
+
+        .include "lib/io.ksasm"

@@ -1,0 +1,45 @@
+; show_string.ksasm — porte de ksvm/examples/show_string.ksasm (v1).
+; Calcula o comprimento de uma string terminada em '\0' e a imprime.
+;
+; Na v1 o argumento ia pela pilha e PRINT manipulava o endereço de retorno
+; à mão (POP/PUSH de EIP); na v2 a convenção de chamada passa o argumento
+; em r1 e devolve o resultado em r1 (doc 04 §1).
+;
+; Saída esperada:
+;   This is a string message!
+
+        .text
+        .global _start
+_start:
+        la      r1, login_message
+        call    print
+        li      r1, 0
+        halt
+
+; strlen(r1 = ponteiro) -> r1 = comprimento
+strlen:
+        mov     r5, r1
+strlen_loop:
+        ldb     r6, [r5]
+        cmpi    r6, 0
+        beq     strlen_done
+        addi    r5, r5, 1
+        b       strlen_loop
+strlen_done:
+        sub     r1, r5, r1
+        ret
+
+; print(r1 = string terminada em '\0')
+print:
+        push    r16
+        mov     r16, r1             ; guarda o ponteiro durante a chamada
+        call    strlen
+        mov     r2, r1              ; comprimento
+        mov     r1, r16             ; ponteiro
+        syscall PUTS
+        pop     r16
+        ret
+
+        .rodata
+login_message:
+        .asciz  "This is a string message!\n"

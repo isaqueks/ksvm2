@@ -1,0 +1,31 @@
+; stack_test.ksasm — porte de ksvm/examples/stack_test.ksasm (v1).
+; Passa o endereço da mensagem pela pilha: empilha, salta para print, que
+; desempilha e imprime.
+;
+; Na v1 havia PUSH de imediato (PUSH32I) e o tamanho escrito era fixo
+; (0xAC bytes, além do fim da string). Na v2 PUSH só aceita registrador e
+; o comprimento é calculado pelo assembler (msg_len).
+;
+; Saída esperada:
+;   Hello, World!
+
+        .text
+        .global _start
+_start:
+        la      r1, message
+        push    r1
+        j       print               ; JMP, não CALL: print não retorna
+
+print:
+        pop     r1                  ; ponteiro empilhado por _start
+        li      r2, msg_len
+        syscall PUTS
+
+end:
+        li      r1, 0
+        halt
+
+        .rodata
+message:
+        .ascii  "Hello, World!\n"
+msg_len = . - message
