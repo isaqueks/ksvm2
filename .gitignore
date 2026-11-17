@@ -19,3 +19,6 @@ __pycache__/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Projeto irmao (compilador C), repositorio proprio
+/kscc/
