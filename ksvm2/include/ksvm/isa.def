@@ -1,0 +1,120 @@
+/*
+ * isa.def — FONTE ÚNICA da ISA KSVM 2.0 (doc 04). Uma linha por instrução.
+ *
+ *   KSVM_OP(nome, opcode, formato, flags, descricao)
+ *
+ *   formato: R | I | L | B | J            (doc 04 §3)
+ *   flags:   NONE | ZN | ZNC | ZNCV       (flags que a instrução altera)
+ *
+ * Mapeamento operando -> campo de bits (vale para a VM, o assembler e o
+ * disassembler):
+ *   - rd (destino) é sempre o campo ra (bits 8..12); nos stores ra é a fonte.
+ *   - R com três operandos "rd, ra, rb": campos ra, rb, rc.
+ *   - I/L "rd, ra, imm": campos ra, rb, imm.
+ *   - Dois registradores "rd, rb" (MOV, NEG, NOT, SXB...): campos ra, rb.
+ *   - Sem destino "ra, rb" / "ra, imm" (CMP, CMPI, CMPL, TST, TSTI): campos ra, rb/imm.
+ *   - JMPR, CALLR e MTSR leem o registrador do campo rb (nome literal do doc 04).
+ *
+ * Quem inclui define KSVM_OP antes e o remove depois. Opcode repetido gera
+ * erro de compilação em isa.c (-Woverride-init, ativado por -Wextra, + -Werror).
+ */
+
+/* 5.1 Movimentação e constantes */
+KSVM_OP(NOP,     0x00, R, NONE, "sem operacao")
+KSVM_OP(MOV,     0x01, R, NONE, "rd = rb")
+KSVM_OP(MOVI,    0x02, I, NONE, "rd = sext(imm14)")
+KSVM_OP(MOVIL,   0x03, L, NONE, "rd = imm32")
+/* 0x04: removido (era MOVHI, redundante com MOVIL) -> FAULT_BAD_OPCODE. */
+KSVM_OP(ADR,     0x05, I, NONE, "rd = PC_next + imm14")
+KSVM_OP(ADRL,    0x06, L, NONE, "rd = PC_next + imm32")
+KSVM_OP(MFSR,    0x07, I, NONE, "rd = SR[imm14]")
+KSVM_OP(MTSR,    0x08, I, ZNCV, "SR[imm14] = rb (somente FLAGS e gravavel)")
+
+/* 5.2 Load / store: EA = rb + imm14 (I) ou rb + rc (R, sufixo X) */
+KSVM_OP(LDB,     0x10, I, NONE, "rd = zext8([rb + imm14])")
+KSVM_OP(LDBS,    0x11, I, NONE, "rd = sext8([rb + imm14])")
+KSVM_OP(LDH,     0x12, I, NONE, "rd = zext16([rb + imm14])")
+KSVM_OP(LDHS,    0x13, I, NONE, "rd = sext16([rb + imm14])")
+KSVM_OP(LDW,     0x14, I, NONE, "rd = [rb + imm14]")
+KSVM_OP(STB,     0x15, I, NONE, "[rb + imm14] = ra & 0xFF")
+KSVM_OP(STH,     0x16, I, NONE, "[rb + imm14] = ra & 0xFFFF")
+KSVM_OP(STW,     0x17, I, NONE, "[rb + imm14] = ra")
+KSVM_OP(LDBX,    0x18, R, NONE, "rd = zext8([rb + rc])")
+KSVM_OP(LDBSX,   0x19, R, NONE, "rd = sext8([rb + rc])")
+KSVM_OP(LDHX,    0x1A, R, NONE, "rd = zext16([rb + rc])")
+KSVM_OP(LDHSX,   0x1B, R, NONE, "rd = sext16([rb + rc])")
+KSVM_OP(LDWX,    0x1C, R, NONE, "rd = [rb + rc]")
+KSVM_OP(STBX,    0x1D, R, NONE, "[rb + rc] = ra & 0xFF")
+KSVM_OP(STHX,    0x1E, R, NONE, "[rb + rc] = ra & 0xFFFF")
+KSVM_OP(STWX,    0x1F, R, NONE, "[rb + rc] = ra")
+
+/* 5.3 Pilha. PUSHM/POPM são opcionais (fase 5): estão na tabela para o
+ * assembler/disassembler, mas a VM 2.0 responde KSVM_FAULT_BAD_OPCODE. */
+KSVM_OP(PUSH,    0x20, R, NONE, "sp -= 4; [sp] = ra")
+KSVM_OP(POP,     0x21, R, NONE, "rd = [sp]; sp += 4")
+KSVM_OP(PUSHM,   0x22, I, NONE, "empilha r16..r29/fp por mascara (nao implementado)")
+KSVM_OP(POPM,    0x23, I, NONE, "inverso de PUSHM (nao implementado)")
+
+/* 5.4 Aritmética inteira */
+KSVM_OP(ADD,     0x30, R, ZNCV, "rd = ra + rb")
+KSVM_OP(ADDI,    0x31, I, ZNCV, "rd = ra + imm14")
+KSVM_OP(ADDL,    0x32, L, ZNCV, "rd = ra + imm32")
+KSVM_OP(SUB,     0x33, R, ZNCV, "rd = ra - rb")
+KSVM_OP(SUBI,    0x34, I, ZNCV, "rd = ra - imm14")
+KSVM_OP(ADC,     0x35, R, ZNCV, "rd = ra + rb + C")
+KSVM_OP(SBC,     0x36, R, ZNCV, "rd = ra - rb - (1 - C)")
+KSVM_OP(NEG,     0x37, R, ZNCV, "rd = 0 - rb")
+KSVM_OP(CMP,     0x38, R, ZNCV, "flags(ra - rb)")
+KSVM_OP(CMPI,    0x39, I, ZNCV, "flags(ra - imm14)")
+KSVM_OP(CMPL,    0x3A, L, ZNCV, "flags(ra - imm32)")
+KSVM_OP(MUL,     0x3B, R, ZN,   "rd = (ra * rb) mod 2^32")
+KSVM_OP(MULI,    0x3C, I, ZN,   "rd = (ra * imm14) mod 2^32")
+KSVM_OP(MULH,    0x3D, R, ZN,   "rd = bits 63..32 de ra * rb com sinal")
+KSVM_OP(MULHU,   0x3E, R, ZN,   "rd = bits 63..32 de ra * rb sem sinal")
+KSVM_OP(DIV,     0x3F, R, ZN,   "rd = ra / rb com sinal, trunca para zero")
+KSVM_OP(DIVU,    0x40, R, ZN,   "rd = ra / rb sem sinal")
+KSVM_OP(REM,     0x41, R, ZN,   "rd = ra mod rb, sinal do dividendo")
+KSVM_OP(REMU,    0x42, R, ZN,   "rd = ra mod rb sem sinal")
+
+/* 5.5 Lógica e deslocamentos (contagem sempre & 31) */
+KSVM_OP(AND,     0x50, R, ZN,   "rd = ra & rb")
+KSVM_OP(ANDI,    0x51, I, ZN,   "rd = ra & imm14")
+KSVM_OP(ANDL,    0x52, L, ZN,   "rd = ra & imm32")
+KSVM_OP(OR,      0x53, R, ZN,   "rd = ra | rb")
+KSVM_OP(ORI,     0x54, I, ZN,   "rd = ra | imm14")
+KSVM_OP(ORL,     0x55, L, ZN,   "rd = ra | imm32")
+KSVM_OP(XOR,     0x56, R, ZN,   "rd = ra ^ rb")
+KSVM_OP(XORI,    0x57, I, ZN,   "rd = ra ^ imm14")
+KSVM_OP(XORL,    0x58, L, ZN,   "rd = ra ^ imm32")
+KSVM_OP(NOT,     0x59, R, ZN,   "rd = ~rb")
+KSVM_OP(SHL,     0x5A, R, ZNC,  "rd = ra << (rb & 31)")
+KSVM_OP(SHLI,    0x5B, I, ZNC,  "rd = ra << (imm14 & 31)")
+KSVM_OP(SHR,     0x5C, R, ZNC,  "rd = ra >> (rb & 31), logico")
+KSVM_OP(SHRI,    0x5D, I, ZNC,  "rd = ra >> (imm14 & 31), logico")
+KSVM_OP(SAR,     0x5E, R, ZNC,  "rd = ra >> (rb & 31), aritmetico")
+KSVM_OP(SARI,    0x5F, I, ZNC,  "rd = ra >> (imm14 & 31), aritmetico")
+KSVM_OP(ROL,     0x60, R, ZNC,  "rd = ra rotacionado a esquerda por (rb & 31)")
+KSVM_OP(ROR,     0x61, R, ZNC,  "rd = ra rotacionado a direita por (rb & 31)")
+KSVM_OP(TST,     0x62, R, ZN,   "flags(ra & rb)")
+KSVM_OP(TSTI,    0x63, I, ZN,   "flags(ra & imm14)")
+KSVM_OP(SXB,     0x64, R, ZN,   "rd = sext8(rb)")
+KSVM_OP(SXH,     0x65, R, ZN,   "rd = sext16(rb)")
+KSVM_OP(ZXB,     0x66, R, ZN,   "rd = rb & 0xFF")
+KSVM_OP(ZXH,     0x67, R, ZN,   "rd = rb & 0xFFFF")
+KSVM_OP(CLZ,     0x68, R, ZN,   "rd = zeros a esquerda de rb (32 se rb = 0)")
+KSVM_OP(CTZ,     0x69, R, ZN,   "rd = zeros a direita de rb (32 se rb = 0)")
+KSVM_OP(POPCNT,  0x6A, R, ZN,   "rd = numero de bits 1 em rb")
+
+/* 5.6 Controle de fluxo. BCOND é o "Bcc" do doc 04 (cond no campo de 4 bits;
+ * o nome evita colidir com o alias BCC = BLO). */
+KSVM_OP(JMP,     0x70, J, NONE, "pc = PC_next + off24 * 4")
+KSVM_OP(JMPR,    0x71, R, NONE, "pc = rb")
+KSVM_OP(BCOND,   0x72, B, NONE, "se cond(flags): pc = PC_next + off20 * 4")
+KSVM_OP(CALL,    0x73, J, NONE, "push PC_next; pc = PC_next + off24 * 4")
+KSVM_OP(CALLR,   0x74, R, NONE, "push PC_next; pc = rb")
+KSVM_OP(RET,     0x75, R, NONE, "pc = [sp]; sp += 4")
+KSVM_OP(HALT,    0x76, R, NONE, "para com exit_code = r1")
+KSVM_OP(TRAP,    0x77, I, NONE, "fault TRAP com fault_addr = sext(imm14)")
+KSVM_OP(SYSCALL, 0x78, I, NONE, "chama o host com numero imm14 (14 bits sem sinal)")
+KSVM_OP(BRK,     0x79, R, NONE, "chama o hook de trace (se habilitado); senao NOP")
+KSVM_OP(WFI,     0x7A, R, NONE, "status = YIELD")
