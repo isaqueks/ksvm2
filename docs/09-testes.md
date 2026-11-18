@@ -38,9 +38,11 @@ TEST(add_sets_carry_and_zero) {
 | Faults | `test_faults.c` | Cada `KSVM_FAULT_*` provocado deliberadamente; estado da VM após o fault é inspecionável e `ksvm_step` não avança |
 | Loader | `test_loader.c` | Cabeçalhos válidos/inválidos (magic, versão, checksum, ranges), `.data` copiado, `.bss` zerado, `sp`/`stack_limit` |
 | Syscall | `test_syscall.c` | `hal_null` com buffers capturáveis; `PUTS` com ponteiro inválido retorna erro sem fault; `CAPS`; `YIELD` |
+| Soft-float | `test_softfloat.c` | Extensão F contra o float do host, **bit a bit** (qualquer NaN do host = exatamente o canônico `0x7FC00000`): casos da especificação escritos à mão, todos os pares de uma tabela de ~80 bordas (±0, ±inf, NaNs com payload, menor/maior subnormal, `FLT_MIN/MAX`, meio exato, 2²³/2²⁴/2³¹/2³², 1/3, sqrt(2)), 200 mil pares por operação de um xorshift32 de semente fixa com viés para expoentes extremos e padrões de mantissa (20 mil com ASan), varredura do espaço de 32 bits em passo fixo nas de um operando. Sem libm: `floor/ceil/trunc/rint` do oráculo saem de conversões `int ↔ float` do C, e a raiz é conferida por enquadramento exato em `double` |
+| Exec F | `test_exec_float.c` | Campos de cada instrução F, flags intactas (exceto `FCMP`, nos 4 casos), `FCMP` + `Bcc` = operadores do C, `CAPS(0x4000)`, e `FAULT_BAD_OPCODE` sem efeito com `KSVM_ENABLE_FLOAT=0` (config "min") |
 | Golden | `tests/golden/*.ksasm` + `.expected` | Programas inteiros montados com `ksas` e rodados com `ksvm` em `hal_posix`; stdout comparado byte a byte. Inclui os exemplos da v1 portados (`hello`, `ask_name`, `jg_test`, `strlen`) e novos: `fib`, `sieve`, `quicksort`, `recursion_depth`, `bitops`, `div_signed`, `str_funcs` |
 | Round-trip | script | `ksas a.ksasm → a.ksx → ksdis → b.ksasm → ksas → b.ksx`; `a.ksx == b.ksx` |
-| Fuzz | `fuzz_exec.c` | Preenche CODE com bytes pseudoaleatórios (semente fixa + modo libFuzzer opcional), roda 10⁶ passos; único resultado aceitável é HALTED/FAULT/limite de instruções. Nunca crash, nunca leitura fora de `ram[]` (ASan) |
+| Fuzz | `fuzz_exec.c` | Preenche CODE com bytes pseudoaleatórios (semente fixa + modo libFuzzer opcional), roda 10⁶ passos; único resultado aceitável é HALTED/FAULT/limite de instruções. Nunca crash, nunca leitura fora de `ram[]` (ASan). O modo estruturado gera também as instruções F (com valores float especiais nos registradores) e confere que todo NaN produzido é o canônico e que `FCMP` deixa uma das quatro combinações de flags |
 | Tamanho | CI | `avr-size` do núcleo compilado para atmega328p comparado a um limite; falha se crescer acima de RNF-04 |
 | Simulação | CI (opcional) | `simavr` rodando `blink`/`hello_uart` por N ciclos e checando a saída da UART; `qemu-system-arm` com `hal_arm_cm` semihosting |
 
@@ -53,8 +55,10 @@ escrita literalmente (16 linhas) copiada do doc 04 §4.
 
 ## 4. Integração contínua
 
-`make test` roda os testes unitários em três configurações (padrão; "alt": trace, MULH sem
-`uint64_t`, 3 regiões; "min": sem MUL/DIV e BITOPS, sem nomes, tabela compacta da ISA).
+`make test` roda os testes unitários em três configurações (padrão; "alt": trace, MULH e
+FMUL/FDIV sem `uint64_t`, 3 regiões; "min": sem MUL/DIV, BITOPS nem extensão F, sem nomes,
+tabela compacta da ISA). A suíte do soft-float roda também no PowerPC big-endian
+(`test-bigendian`), e o `fselftest` repete ~110 contas F no Cortex-M0 (`test-arm`).
 `make check-all` é a definição de "verde": adiciona sanitizers, `-m32`, clang,
 freestanding, cross-compiles AVR/ARM, big-endian (qemu-ppc), fuzz curto (`fuzz-quick`),
 testes do assembler (`test-ksas`, com round-trip), das ferramentas (`test-tools`) e das

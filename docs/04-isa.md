@@ -36,7 +36,8 @@ PUSH/POP/CALL/RET).
 | 4–31 | — | Reservado, lido como 0 |
 
 Convenção de `C` em subtração é a do ARM (não a do x86), o que faz as condições
-`HS/LO/HI/LS` saírem direto das flags.
+`HS/LO/HI/LS` saírem direto das flags. `FCMP` (extensão F, §5.7) também segue o ARM (VFP):
+menor = N, igual = ZC, maior = C, unordered = CV.
 
 ## 3. Formatos de codificação
 
@@ -253,21 +254,116 @@ formato L devem ser zero. A v2.0 **ignora** esses bits (não gera fault); versõ
 dar-lhes significado, então assembladores devem sempre emiti-los zerados.
 Saltos para endereços desalinhados ou fora da região EXEC → fault no **próximo** fetch.
 
-### 5.7 Reservados
+### 5.7 Extensão F (ponto flutuante binary32)
 
-- `0x80–0xBF`: extensão **F** (ponto flutuante) — futuro. Plano: IEEE-754 single armazenado
-  como bits em registradores inteiros (sem banco separado), implementado em **soft-float
-  portável** (inteiros puros, estilo Berkeley SoftFloat) atrás de `KSVM_ENABLE_FLOAT`,
-  garantindo resultado bit a bit idêntico em todos os hosts. Enquanto não existe, floats
-  são possíveis via biblioteca em assembly da KSVM no guest (`MULHU`, `CLZ`, shifts e
-  `ADC/SBC` bastam) ou via syscalls `FADD/FMUL/...` executadas pelo host.
+Opcional, atrás de `KSVM_ENABLE_FLOAT` (padrão 1 no desktop e no Cortex-M; **0 na porta
+AVR**, que não comporta o soft-float na meta de 12 KB, doc 08 §4.2). Um programa descobre se
+a VM tem a extensão por `CAPS(0x4000)`, bit 2 (doc 06 §3).
+
+**Representação.** Um float é um **IEEE 754 binary32** guardado como padrão de bits num
+registrador inteiro comum `rN` (sinal no bit 31, expoente nos bits 30..23, fração nos
+22..0). Não há banco de registradores separado, `double` nem pares de registradores:
+`MOV`, `LDW`/`STW`, `PUSH`/`POP` e a convenção de chamada (doc 04 §1) valem sem mudança.
+Constantes vêm de `fli rd, 1.5` (= `MOVIL rd, 0x3FC00000`) ou de `.float` na memória
+(doc 07).
+
+**Operandos** seguem a convenção de campos das inteiras (topo de `isa.def`): três operandos
+`rd, ra, rb` nos campos `ra, rb, rc`; dois operandos `rd, rb` nos campos `ra, rb` (como
+`NEG`/`NOT`; `fneg rd` = `fneg rd, rd`); `FCMP ra, rb` sem destino, como `CMP`. Todas são
+formato R, 4 bytes; não há forma com imediato.
+
+| Opcode | Mnemônico | Fmt | Semântica | Flags |
+|--------|-----------|-----|-----------|-------|
+| 0xA0 | `FADD rd, ra, rb` | R | rd = ra + rb | — |
+| 0xA1 | `FSUB rd, ra, rb` | R | rd = ra − rb | — |
+| 0xA2 | `FMUL rd, ra, rb` | R | rd = ra × rb | — |
+| 0xA3 | `FDIV rd, ra, rb` | R | rd = ra ÷ rb; `x ÷ ±0` = ±inf (x ≠ 0), sem fault | — |
+| 0xA4 | `FMIN rd, ra, rb` | R | menor; um NaN → o outro operando; `FMIN(−0, +0) = −0` | — |
+| 0xA5 | `FMAX rd, ra, rb` | R | maior; um NaN → o outro operando; `FMAX(−0, +0) = +0` | — |
+| 0xA6 | `FSQRT rd, rb` | R | rd = √rb; `√(−0) = −0`; negativo (inclusive −inf) → NaN | — |
+| 0xA7 | `FNEG rd, rb` | R | rd = rb ^ 0x80000000 (só o sinal, inclusive em NaN) | — |
+| 0xA8 | `FABS rd, rb` | R | rd = rb & 0x7FFFFFFF (só o sinal, inclusive em NaN) | — |
+| 0xA9 | `FRINT rd, rb` | R | inteiro mais próximo, empate para o par (resultado float) | — |
+| 0xAA | `FFLOOR rd, rb` | R | inteiro em direção a −inf (float) | — |
+| 0xAB | `FCEIL rd, rb` | R | inteiro em direção a +inf (float) | — |
+| 0xAC | `FTRUNC rd, rb` | R | inteiro em direção a zero (float) | — |
+| 0xAD | `FTOI rd, rb` | R | (int32) rb: trunca para zero, satura em `INT32_MIN/MAX`; NaN → 0 | — |
+| 0xAE | `FTOU rd, rb` | R | (uint32) rb: trunca para zero, satura em `0/UINT32_MAX`; NaN → 0 | — |
+| 0xAF | `ITOF rd, rb` | R | (float) de rb com sinal, RNE | — |
+| 0xB0 | `UTOF rd, rb` | R | (float) de rb sem sinal, RNE | — |
+| 0xB1 | `FCMP ra, rb` | R | compara ra com rb, sem destino (tabela abaixo) | ZNCV |
+
+**Regras comuns** (idênticas em todos os hosts, bit a bit):
+
+- **Arredondamento** sempre para o mais próximo, empate para o par (RNE). Não há registrador
+  de controle, modos de arredondamento, exceções IEEE nem flags sticky; **nenhuma instrução
+  F gera fault** (só `FAULT_BAD_OPCODE` com a extensão desligada).
+- **Subnormais** são suportados na entrada e na saída (sem flush-to-zero); underflow dá o
+  subnormal (ou zero) corretamente arredondado, overflow dá ±inf.
+- **NaN canônico.** Todo NaN produzido ou propagado por `FADD FSUB FMUL FDIV FSQRT FRINT
+  FFLOOR FCEIL FTRUNC` e por `FMIN/FMAX` com os dois operandos NaN é exatamente
+  **`0x7FC00000`** (sinal 0, NaN quieto, payload 0), qualquer que seja o NaN de entrada
+  (quieto ou sinalizador, com qualquer sinal e payload) — como no RISC-V. Isso garante o
+  mesmo padrão de bits em qualquer host. Operações inválidas dão o NaN canônico:
+  `inf − inf`, `0 × inf`, `0 ÷ 0`, `inf ÷ inf` e a raiz de negativo.
+- **Zeros**: `x − x = +0`; `+0 + −0 = +0`; `−0 + −0 = −0`; o sinal de produtos e quocientes
+  é o XOR dos sinais. `FRINT/FFLOOR/FCEIL/FTRUNC` preservam o sinal de zero
+  (`FCEIL(−0.5) = −0`, `FRINT(−0.5) = −0`, `FTRUNC(−0.7) = −0`), devolvem ±inf como está e
+  NaN como o canônico; |x| ≥ 2²³ já é inteiro.
+- **Flags**: só `FCMP` altera FLAGS (as quatro, sempre); as demais preservam ZNCV.
+- **Conversões**: `FTOI` satura `≥ 2³¹` (inclusive +inf) em `0x7FFFFFFF` e `≤ −2³¹`
+  (inclusive −inf) em `0x80000000`; `FTOU` dá 0 para todo negativo (−0.5 trunca para 0,
+  −1 satura em 0) e `0xFFFFFFFF` a partir de 2³²; NaN dá 0 em ambas. `ITOF/UTOF` arredondam
+  RNE: `ITOF(16777217) = 16777216.0`, `UTOF(0xFFFFFFFF) = 4294967296.0` (`0x4F800000`).
+
+**FCMP** segue a convenção do ARM VFP, para que os `Bcc` existentes sirvam sem
+instruções novas:
+
+| Relação de `FCMP a, b` | N | Z | C | V | FLAGS |
+|------------------------|---|---|---|---|-------|
+| a < b | 1 | 0 | 0 | 0 | `0x2` |
+| a == b (inclusive `+0 == −0`) | 0 | 1 | 1 | 0 | `0x5` |
+| a > b | 0 | 0 | 1 | 0 | `0x4` |
+| unordered (algum operando NaN) | 0 | 0 | 1 | 1 | `0xC` |
+
+Mapeamento para o compilador (resultado exatamente o do C, inclusive com NaN, onde só `!=`
+é verdadeiro):
+
+| C | Desvio depois de `FCMP a, b` | Verdadeiro quando |
+|---|------------------------------|-------------------|
+| `a == b` | `BEQ` | igual |
+| `a != b` | `BNE` | menor, maior ou unordered |
+| `a < b` | `BMI` (ou `BLO`) | menor |
+| `a <= b` | `BLS` | menor ou igual |
+| `a > b` | `BGT` | maior |
+| `a >= b` | `BGE` | maior ou igual |
+| `isunordered(a, b)` | `BVS` (`BVC`: ordenado) | algum NaN |
+
+As negações saem das condições complementares: `!(a < b)` = `BPL`, `!(a <= b)` = `BHI`
+(maior ou unordered), `!(a > b)` = `BLE`, `!(a >= b)` = `BLT` (menor ou unordered).
+
+**Implementação.** Soft-float portável em `src/core/softfloat.c` (`include/ksvm/softfloat.h`),
+só com inteiros de 32 bits e um caminho com `uint64_t` em `FMUL`/`FDIV` que
+`KSVM_NO_INT64=1` troca por produto em 16 bits e divisão longa; sem `float`/`double` do
+host, sem libm, sem UB. Desenho do Berkeley SoftFloat 3 (representação intermediária e
+rotina de arredondamento), código próprio. Desligada (`KSVM_ENABLE_FLOAT=0`), os opcodes
+`0xA0–0xB1` continuam na tabela da ISA (o assembler e o disassembler os aceitam) mas geram
+`FAULT_BAD_OPCODE` sem efeito (fault_addr = a palavra), `softfloat.c` compila vazio e
+`CAPS(0x4000)` não liga o bit F.
+
+### 5.8 Reservados
+
+- `0x80–0x9F`: livres, reservados para extensões futuras do núcleo.
+- `0xB2–0xBF`: reservados para a extensão F (ex.: `FMADD`, conversões de/para 64 bits).
 - `0xC0–0xEF`: extensões específicas de plataforma (ex.: `AVR_IO`), nunca no núcleo.
 - `0xF0–0xFF`: inválidos permanentemente; `0xFF` = `FAULT_BAD_OPCODE` garantido (uma imagem
   cheia de `0xFF`, estado de flash apagada, falha imediatamente).
 
-Total na v2.0: **~90 opcodes** cobrindo o que a v1 tinha (menos as variantes 8/16) mais
-comparação com sinal, lógica, deslocamentos, rotações, extensão de sinal, mul/div com e sem
-sinal, halt/trap/break.
+Total na v2.0: **85 opcodes** na base, cobrindo o que a v1 tinha (menos as variantes 8/16)
+mais comparação com sinal, lógica, deslocamentos, rotações, extensão de sinal, mul/div com e
+sem sinal, halt/trap/break; e **18** da extensão F (`0xA0–0xB1`), 103 no total. A extensão
+não muda `ISA_VERSION` (continua `0x0200`): ela é detectada por `CAPS`, como `MUL/DIV` e
+`CLZ/CTZ/POPCNT`.
 
 ## 6. Turing-completude e suficiência para compiladores
 
@@ -279,8 +375,12 @@ sinal, halt/trap/break.
 - `ADR`/`ADRL` → código relocável.
 - Acesso a 8/16 bits com extensão de sinal e zero → `char`, `short`, `uint8_t` do C.
 - `MULH`/`DIVU`/`REMU` + `ADC`/`SBC` → aritmética de 64 bits em software.
+- Extensão F (§5.7) → `float` do C: as quatro operações, `sqrtf`, `fminf/fmaxf`,
+  `rintf/floorf/ceilf/truncf`, conversões `int ↔ float` e comparações (inclusive NaN) por
+  `FCMP` + `Bcc`. `double` fica para software (ou uma extensão futura).
 
-Isso cobre o que um backend de C precisa, exceto ponto flutuante (extensão futura).
+Isso cobre o que um backend de C precisa; sem a extensão F, `float` também sai em software
+(biblioteca no guest sobre `MULHU`, `CLZ`, shifts e `ADC/SBC`).
 
 ## 7. Pseudo-instruções (resolvidas pelo assembler, não existem no binário)
 
@@ -288,6 +388,7 @@ Isso cobre o que um backend de C precisa, exceto ponto flutuante (extensão futu
 |--------|--------------|
 | `LI rd, valor` | `MOVI` se cabe em 14 bits com sinal, senão `MOVIL` |
 | `LA rd, label` | `MOVIL rd, label` (absoluto) ou `ADRL rd, label−PC` com `.pic` |
+| `FLI rd, valor` | `MOVIL rd, bits` do binary32 de `valor` (`fli r1, 1.5` = `MOVIL r1, 0x3FC00000`) |
 | `CLR rd` | `MOV rd, zr` |
 | `INC rd` / `DEC rd` | `ADDI rd, rd, 1` / `SUBI rd, rd, 1` |
 | `NOT rd` | `NOT rd, rd` |

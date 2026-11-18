@@ -320,7 +320,9 @@ uint32_t ksvm_f32_sqrt(uint32_t a)
             root |= 1u;
         }
     }
-    return round_pack(0u, (e + 127) / 2 - 1, (root << 5) | ((rem != 0u) ? 1u : 0u));
+    /* e + 127 > 0: shift sem sinal em vez de divisão com sinal (libgcc no AVR) */
+    return round_pack(0u, (int32_t)((uint32_t)(e + 127) >> 1) - 1,
+                      (root << 5) | ((rem != 0u) ? 1u : 0u));
 }
 
 /* ---- Mínimo, máximo, sinal -------------------------------------------- */

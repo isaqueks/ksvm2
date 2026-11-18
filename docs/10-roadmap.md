@@ -94,10 +94,25 @@ QEMU-ARM com a saída pela UART/semihosting.
 - Macros no assembler; linker de múltiplos objetos (`.kso`) se houver compilador
 - Snapshot/restore de `struct ksvm` + RAM (checkpoint, debug reverso)
 - Depurador interativo no runner (breakpoints por endereço, watch de memória)
-- Extensão F (ponto flutuante): primeiro uma `libfloat.ksasm` em assembly do guest como
-  prova de conceito e oráculo; depois opcodes `FADD/FSUB/FMUL/FDIV/FCMP/F2I/I2F` em
-  soft-float C portável (`KSVM_ENABLE_FLOAT`); ambos devem dar bits idênticos
+- ✅ Extensão F (ponto flutuante binary32) — ver abaixo
+- `libfloat.ksasm` (float em software no guest, para VMs sem a extensão, como a do AVR)
 - Geração do doc 04 e da tabela do assembler a partir de `isa.def` por script
+
+> **Extensão F concluída.** Entregue: 18 opcodes `0xA0–0xB1` (`FADD FSUB FMUL FDIV FMIN
+> FMAX FSQRT FNEG FABS FRINT FFLOOR FCEIL FTRUNC FTOI FTOU ITOF UTOF FCMP`, doc 04 §5.7) sobre
+> binary32 nos registradores inteiros, RNE, subnormais, NaN canônico `0x7FC00000`, `FCMP`
+> na convenção ARM VFP; soft-float portável só com inteiros (`softfloat.c`, com e sem
+> `KSVM_NO_INT64`) atrás de `KSVM_ENABLE_FLOAT`; bit F em `CAPS(0x4000)` (doc 06); `.float`
+> e `fli` no `ksas` (doc 07); `examples/float.ksasm`. Testes: `test_softfloat` (oráculo =
+> float do host, bit a bit, tabela de bordas + 200 mil pares pseudoaleatórios por operação),
+> `test_exec_float`, testes do `ksas` e round-trip com `ksdis --raw`, invariantes de NaN e
+> FCMP no fuzz estruturado, `fselftest` no Cortex-M0 (QEMU) e `make test-bigendian` (PowerPC)
+> verdes. **AVR: desligada** (`ports/avr/ksvm_config_user.h`): ligada, o firmware vai a
+> 16674 B e estoura a meta RNF-04 de 12 KB (doc 08 §4.2); lá `CAPS` não anuncia F e os
+> opcodes dão `FAULT_BAD_OPCODE`. Divergências do plano: os opcodes ficaram em `0xA0–0xB1`
+> (`0x80–0x9F` continuam livres); o oráculo foi o float do host (IEEE estrito em SSE e no
+> PowerPC) em vez de uma `libfloat.ksasm`, que fica como item próprio (útil justamente para
+> o AVR). Pendente: `double`, `FMADD` e conversões de 64 bits (`0xB2–0xBF` reservados).
 
 ## Riscos e mitigação
 

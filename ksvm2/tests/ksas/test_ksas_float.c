@@ -104,6 +104,14 @@ TEST(float_directive_values)
     ASSERT_EQ(ta_code8(&o, 7), 0xC0);
     ASSERT_EQ(ta_code8(&o, 8), 0xBF);
     ta_free(&o);
+
+    /* Formas que o lexer nem tokeniza como número: ".5", "+1.5", "infinity". */
+    ASM_OK(&o, "halt\n.data\n.float .5, +1.5, -infinity, 0X1P+4\n");
+    ASSERT_EQ_U32(data32(&o, 0), 0x3F000000u);
+    ASSERT_EQ_U32(data32(&o, 4), 0x3FC00000u);
+    ASSERT_EQ_U32(data32(&o, 8), 0xFF800000u);
+    ASSERT_EQ_U32(data32(&o, 12), 0x41800000u);         /* 16 */
+    ta_free(&o);
 }
 
 TEST(float_directive_errors)

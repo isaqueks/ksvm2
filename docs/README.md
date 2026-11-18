@@ -33,7 +33,8 @@ Nada aqui é código ainda. Estes documentos são a especificação que o códig
    ponteiro desalinhados, zero dependência do endianness do host.
 6. **Barramento de memória com regiões** (código, RAM, MMIO). Em Harvard, a região de
    código é lida da flash via callback; em von Neumann, é um `uint8_t[]` comum.
-7. **Núcleo freestanding**: sem `malloc`, sem `stdio`, sem `math.h`, sem floats. O host
+7. **Núcleo freestanding**: sem `malloc`, sem `stdio`, sem `math.h`, sem floats do host (a
+   extensão F de ponto flutuante, doc 04 §5.7, é soft-float só com inteiros). O host
    fornece buffers e um `struct ksvm_hal` com funções de I/O.
 8. **Syscalls são despachadas para o host** por número, nunca executadas como syscalls
    nativas. Buffers passados ao host são validados pelo barramento.

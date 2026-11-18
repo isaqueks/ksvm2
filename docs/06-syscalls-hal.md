@@ -39,10 +39,33 @@ Grupos de 16. Todas opcionais exceto `EXIT`; a ausência é reportada por `CAPS`
 | N | Nome | Args | Retorno |
 |---|------|------|---------|
 | 0x00 | `EXIT` | r1 = código | não retorna (status HALTED) |
-| 0x01 | `CAPS` | r1 = número de syscall a consultar | r1 = 1 se suportada, 0 senão |
+| 0x01 | `CAPS` | r1 = número de syscall a consultar, ou `0x4000` (extensões da ISA) | r1 = 1 se suportada, 0 senão; com `0x4000`, máscara abaixo |
 | 0x02 | `VERSION` | — | r1 = versão da VM (`major<<16 \| minor<<8 \| patch`) |
 | 0x03 | `YIELD` | — | devolve controle ao host (status YIELD) |
 | 0x04 | `ABORT` | r1 = código | status FAULT, fault = TRAP |
+
+**`CAPS` de extensões da ISA.** Números de syscall vão só até `0x3FFF` (imm14), então
+consultas acima dessa faixa nunca colidem com uma syscall. `CAPS` com `r1 = 0x4000`
+(`KSVM_CAPS_ISA` em `syscall.h`) devolve em `r1` a máscara das extensões opcionais que esta
+VM executa (`r2 = 0`); qualquer outro valor acima de `0x3FFF` responde 0:
+
+| Bit | Máscara | Extensão | Chave de compilação |
+|-----|---------|----------|---------------------|
+| 0 | `0x1` | M: `MUL MULI MULH MULHU DIV DIVU REM REMU` | `KSVM_ENABLE_MULDIV` |
+| 1 | `0x2` | B: `CLZ CTZ POPCNT` | `KSVM_ENABLE_BITOPS` |
+| 2 | `0x4` | **F**: ponto flutuante binary32, `FADD..FCMP` (doc 04 §5.7) | `KSVM_ENABLE_FLOAT` |
+| 3–31 | — | reservados, lidos como 0 | |
+
+Desktop e Cortex-M respondem `0x7`; a porta AVR responde `0x3` (sem F). Um programa que usa
+float testa o bit 2 antes e, sem ele, recorre a uma biblioteca em software ou avisa, em vez de
+cair em `FAULT_BAD_OPCODE` (exemplo em `examples/float.ksasm`):
+
+```asm
+        li      r1, 0x4000
+        syscall CAPS
+        andi    r1, r1, 4           ; bit F
+        beq     sem_float
+```
 
 ### Grupo 1 — console
 | N | Nome | Args | Retorno |

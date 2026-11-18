@@ -12,10 +12,10 @@ Cada item abaixo corresponde a um defeito real da v1 ou a um requisito das plata
 | Nunca `int`/`unsigned`/`long` para dados do guest. `int` é 16 bits no AVR, `long` é 32 no Win64 e 64 no Linux x64 | Overflow silencioso e tamanhos de struct diferentes |
 | Aritmética: fazer em `uint32_t` (wrap definido), converter para `int32_t` só para testar sinal via bit 31 | Overflow de `int32_t` é UB; de `uint32_t` é módulo 2³² |
 | Flags C/V de ADD: `c = (res < a)`, `v = ((a ^ res) & (b ^ res)) >> 31`. SUB: `c = (a >= b)`, `v = ((a ^ b) & (a ^ res)) >> 31` | Sem `uint64_t`, sem `pow()` |
-| `MULH`: usar `uint64_t` (C99 obrigatório); se `KSVM_NO_INT64`, implementar por quatro produtos de 16 bits | Alguns compiladores embarcados antigos |
+| `MULH` e o `FMUL`/`FDIV` do soft-float: usar `uint64_t` (C99 obrigatório); se `KSVM_NO_INT64`, quatro produtos de 16 bits e divisão longa bit a bit | Alguns compiladores embarcados antigos |
 | Divisão: testar `rb == 0` e `(ra == INT32_MIN && rb == -1)` antes de dividir | Ambos são UB em C e SIGFPE em x86 |
 | Shifts: contagem sempre `& 31`; shift de `uint32_t` por 32 é UB | |
-| Nenhum `float`/`double` no núcleo | AVR sem FPU: libgcc float custa KBs; Cortex-M0 idem |
+| Nenhum `float`/`double` no núcleo: a extensão F (doc 04 §5.7) é soft-float só com inteiros (`softfloat.c`), NaN canônico e RNE fixo | AVR sem FPU: libgcc float custa KBs; Cortex-M0 idem. E a FPU/libgcc do host divergiria nos NaNs e no modo de arredondamento; o soft-float dá os mesmos bits em todo host (testado contra o float do host em x86-64 e PowerPC e no Cortex-M0 pelo `fselftest`) |
 
 ## 2. Memória
 
@@ -59,7 +59,7 @@ todo lugar.
 
 ### 4.1 Portas embarcadas: o que roda e como é verificado
 
-Os dois alvos rodam os mesmos quatro programas (gerados por `ports/common/genprogs.c`) e
+Os dois alvos rodam os mesmos cinco programas (gerados por `ports/common/genprogs.c`) e
 o teste confere a saída da UART com `ports/common/expect_run.sh` (timeout; falha se a
 string esperada não aparecer):
 
@@ -68,6 +68,7 @@ string esperada não aparecer):
 | `hello` | PUTS de string na ROM (flash), HALT | `KSVM on AVR` / `KSVM on ARM`, `KSVM halt 00000000` |
 | `blink` | PIN_MODE/PIN_WRITE/PIN_READ no pino 13, SLEEP_MS, MILLIS (≥ 600 ms medidos) | AVR `101010 time ok`; ARM `000000 time ok` (o QEMU não modela o GPIO do AN385) |
 | `selftest` | 91 verificações: ADD/SUB/MUL/MULH/MULHU/DIV/REM/shifts/rotações com valores de borda, CLZ/CTZ/POPCNT, carry, imediatos, `.data`/`.bss`, little-endian, CALL/RET/PUSH/POP, VERSION, RANDOM, syscall inexistente | `selftest ok`; o esperado é calculado no host pela ALU do próprio núcleo, então divergência entre o binário de 8/32 bits e o desktop aparece como `selftest FAIL <n>` |
+| `fselftest` | Extensão F: `CAPS(0x4000)` e, se o bit F está ligado, 111 verificações — as 6 operações de três operandos e `FCMP` (flags por `MFSR`) em 8 pares (1/3, overflow, subnormal com empate, empate em 2²⁴, NaN com payload, −0/+0 e 2 do xorshift) e as 11 de um operando em 5 valores | ARM: `fselftest ok` (esperado calculado no host pelo mesmo `softfloat.c`; o binário Thumb-1 com as rotinas de 64 bits da libgcc dá os mesmos bits). AVR: `fselftest: sem extensao F` (a porta desliga F) |
 | `fault` | LDW fora do mapa | `KSVM FAULT 04 pc=00000008 addr=7FFFFFF0` |
 
 simavr: `simavr -m atmega328p -f 16000000 avr-*.elf`; a UART0 aparece no stderr do
@@ -79,28 +80,44 @@ arm-*.elf`; termina por semihosting `SYS_EXIT`.
 
 Medido do mapa do linker após `--gc-sections`, firmware `hello` (o núcleo é o mesmo em
 todos; só a imagem do guest muda). Configuração da porta: tabela compacta na flash, sem
-nomes, `KSVM_MAX_REGIONS=3`, MULH com `uint64_t`.
+nomes, `KSVM_MAX_REGIONS=3`, MULH com `uint64_t`, **extensão F desligada**
+(`KSVM_ENABLE_FLOAT=0`, ver abaixo).
 
 | Módulo | Flash antes da fase 4 | Flash agora | RAM agora |
 |--------|----------------------:|------------:|----------:|
 | alu | 2810 | 1816 | 0 |
-| bus | 1474 | 1444 | 0 |
+| bus | 1474 | 1480 | 0 |
 | cpu | 414 | 208 | 0 |
-| exec | 2892 | 2814 | 0 |
+| exec | 2892 | 2798 | 0 |
 | isa (tabela + decode) | 1066 (tabela de 768 B também na **SRAM**) | 496 | 0 |
-| loader | 1936 | 1848 | 0 |
-| syscall | 1700 | 1586 | 0 |
-| vm | 534 | 528 | 14 |
-| **núcleo** | **12826** | **10740** | **14** |
+| loader | 1936 | 1860 | 0 |
+| syscall | 1700 | 1616 | 0 |
+| vm | 534 | 502 | 14 |
+| **núcleo** | **12826** | **10776** | **14** |
 | hal_avr | 1256 | 990 | 5 |
 | libgcc (div/mul) | 316 | 452 | 0 |
-| **núcleo + hal_avr + libgcc** | **14398** | **12182** (meta ≤ 12288) | |
+| **núcleo + hal_avr + libgcc** | **14398** | **12218** (meta ≤ 12288) | |
+
+"Agora" = depois da extensão F (fase 5), com ela desligada. Antes dela o total era 12200 B:
+a consulta `CAPS(0x4000)` (máscara de extensões, doc 06 §3), que existe também sem F, custou
+18 B em `syscall`.
+
+**Extensão F no AVR.** Não cabe: com `KSVM_ENABLE_FLOAT=1` (variante `com-float` do
+`size-avr`) o total vai a **16674 B**, 4386 B acima da meta — `softfloat` 3732 B, `exec`
++320 B (despacho dos 18 opcodes), `isa` +4 B e libgcc +400 B (`__udivdi3`/`__divdi3` da
+divisão de 64 bits do `FDIV`, `__cmpdi2`, shifts de 64 bits). Com `KSVM_NO_INT64=1` também
+(FDIV por divisão longa, FMUL por produtos de 16 bits) fica em 16194 B: ainda 3,9 KB acima.
+Por isso `ports/avr/ksvm_config_user.h` define `KSVM_ENABLE_FLOAT=0`: os opcodes `0xA0–0xB1`
+dão `FAULT_BAD_OPCODE` e `CAPS(0x4000)` responde `0x3` (sem o bit F), o que o `fselftest` do
+`test-avr` confere. Se alguém ligar F na porta, o `size-avr` falha (`ESTOUROU`). Num
+ATmega328P, um programa que precise de float usa uma biblioteca em software no guest; numa
+placa com mais flash (ATmega2560, 256 KB) basta ligar a chave e ajustar a meta.
 
 "Antes" = primeira medição linkada da porta (só `-Os -mcall-prologues`, tabela na RAM).
 `ksx_write`, `encode` e `disasm` nunca entram (biblioteca estática + `--gc-sections`); os
 nomes também não, porque o firmware não chama `ksvm_op_name`/`ksvm_fault_name`.
 `sizeof(struct ksvm)` = 215 bytes no AVR (RNF-04: ≤ 300). Firmware completo `hello`:
-12844 B de flash, 1277 B de SRAM estática (dos quais 1024 são a RAM do guest).
+12880 B de flash, 1277 B de SRAM estática (dos quais 1024 são a RAM do guest).
 
 De onde veio a redução:
 
@@ -119,10 +136,10 @@ Todas as reescritas do núcleo foram conferidas contra a versão anterior por te
 diferencial (centenas de milhões de entradas, inclusive todas as 16 condições × 256 flags e
 todas as contagens de shift) além da suíte unitária.
 
-Variantes (`size-avr` imprime): tabela completa na flash +510 B; `KSVM_NO_INT64=1` **+50 B**
+Variantes (`size-avr` imprime): tabela completa na flash +508 B; `KSVM_NO_INT64=1` **+50 B**
 (com avr-gcc 7.3 o `__umulsidi3` da libgcc é menor que quatro `__mulsi3` + somas, por isso a
 porta usa `uint64_t`); sem PWM −186 B; tabela na RAM: +768 B de SRAM (firmware com 2045 de
-2048 bytes: inviável).
+2048 bytes: inviável); `com-float` (extensão F ligada) 16674 B, acima da meta.
 
 Armadilha do toolchain: com `-mrelax`, o avr-ld 2.26 (binutils do Ubuntu 24.04) corrompe
 tabelas de salto de `switch` quando o `jmp __tablejump2__` imediatamente anterior é
@@ -131,16 +148,20 @@ encurtado para `rjmp`: o rótulo da tabela, no fim dos bytes removidos, não é 
 Dependia do layout e só o `test-avr` detectou. A porta compila com `-fno-jump-tables`
 (+48 B).
 
-Margem e alavancas se o núcleo crescer (medidas): ~100 B de folga hoje.
+Margem e alavancas se o núcleo crescer (medidas): 70 B de folga hoje.
 `KSVM_HAL_AVR_PWM=0` −186 B, `KSVM_ENABLE_BITOPS=0` −512 B, `KSVM_ENABLE_MULDIV=0`
 −1036 B (perde instruções da ISA: o programa precisa não usá-las), `KSVM_CHECK_STACK=0`
-só −34 B (não vale a perda de proteção). Sem contar a libgcc, núcleo + `hal_avr` = 11730 B.
+só −34 B (não vale a perda de proteção). Sem contar a libgcc, núcleo + `hal_avr` = 11766 B.
 
 ### 4.3 Tamanho no Cortex-M0 (`ports/arm_cm`, config de MCU)
 
-Núcleo 5380 B, `hal_arm_cm` 416 B, libgcc 432 B (divisão), firmware `hello` completo
-7184 B de flash; `sizeof(struct ksvm)` = 244 bytes. Com os padrões de desktop
-(`KSVM_ISA_NAMES=1`, tabela completa) `isa` sobe de 404 para 2589 B.
+Com a extensão F ligada (padrão; a flash do Cortex-M comporta): núcleo 7012 B
+(`softfloat` 1370 B, `exec` 1800 B), `hal_arm_cm` 416 B, libgcc 1012 B (divisão de 32 bits
+e, pela F, `__aeabi_uldivmod`/`__udivmoddi4` do `FDIV`, `__aeabi_lmul`, `__aeabi_llsl`),
+firmware `hello` completo 9391 B de flash; `sizeof(struct ksvm)` = 244 bytes. Sem F
+(antes da fase 5): núcleo 5426 B, libgcc 432 B, firmware 7225 B — a extensão custa
+~2,2 KB no Cortex-M0. Com os padrões de desktop (`KSVM_ISA_NAMES=1`, tabela completa) `isa`
+sobe de 404 para 2589 B.
 
 ## 5. Checklist de revisão por módulo
 

@@ -9,6 +9,9 @@ doc 07, portabilidade no doc 08, testes no doc 09, roadmap no doc 10).
 Estado: fases 1–4 do roadmap concluídas — núcleo (`libksvm.a`), assembler
 `ksas`, disassembler `ksdis`, conversor `ksimg`, runner `ksvm` com HALs
 POSIX/Win32, e portas ATmega328P (simavr) e Cortex-M (QEMU `mps2-an385`).
+Da fase 5: a **extensão F** (ponto flutuante IEEE 754 binary32 nos registradores
+inteiros, soft-float só com inteiros, bits idênticos em todo host; doc 04 §5.7),
+ligada no desktop e no Cortex-M e desligada no ATmega328P, onde não cabe nos 12 KB.
 
 ## Build
 
@@ -23,7 +26,7 @@ aviso.
 | Alvo | O que faz | check-all |
 |------|-----------|:---------:|
 | `make` | `build/libksvm.a` (só `src/core`) | |
-| `make test` | testes unitários em três configs: padrão, "alt" (trace, MULH sem `uint64_t`, 3 regiões) e "min" (sem MUL/DIV nem BITOPS, sem nomes, tabela compacta da ISA) | ✓ |
+| `make test` | testes unitários em três configs: padrão, "alt" (trace, MULH e FMUL/FDIV sem `uint64_t`, 3 regiões) e "min" (sem MUL/DIV, BITOPS nem extensão F, sem nomes, tabela compacta da ISA) | ✓ |
 | `make test-asan` | idem com `-fsanitize=address,undefined -fno-sanitize-recover=all` | ✓ |
 | `make check-freestanding` | `src/core/*.c` com `-ffreestanding -nostdlib` | ✓ |
 | `make check-clang` / `check-m32` | núcleo com clang / com `-m32` | ✓ |
@@ -67,22 +70,23 @@ O mesmo `.ksx` como firmware:
 O firmware valida a imagem no build (`ports/avr/mkimage.py`: magic, versão e
 checksum), embute-a na flash e imprime pela UART; termina com
 `KSVM halt <código>` ou `KSVM FAULT ...`. `make ports-avr` / `ports-arm`
-geram os firmwares de exemplo (hello, blink, selftest, fault) a partir de
+geram os firmwares de exemplo (hello, blink, selftest, fselftest, fault) a partir de
 programas montados por `ports/common/genprogs.c`.
 
 ## Estrutura
 
 ```
 include/ksvm/      API pública (ksvm.h inclui o núcleo)
-  config.h         chaves KSVM_* (MAX_REGIONS, ENABLE_TRACE, ENABLE_MULDIV, ISA_COMPACT, ...)
+  config.h         chaves KSVM_* (MAX_REGIONS, ENABLE_TRACE, ENABLE_MULDIV, ENABLE_FLOAT,
+                   ISA_COMPACT, ...)
   isa.def          fonte única da ISA: uma linha por instrução (X-macro)
   isa.h            opcodes, formatos, flags, condições, extratores de campo
   bytes.h          ld/st little-endian e extensão de sinal (static inline)
   cpu.h alu.h bus.h fault.h hal.h trace.h vm.h syscall.h loader.h
-  encode.h disasm.h ksx_write.h types.h
+  encode.h disasm.h ksx_write.h types.h softfloat.h
   hal_null.h hal_posix.h hal_win32.h hal_avr.h hal_arm_cm.h
 src/core/          núcleo freestanding: isa alu cpu bus exec vm fault syscall
-                   loader ksx_write encode disasm
+                   loader ksx_write encode disasm softfloat
 src/hal/           hal_null (testes), hal_posix, hal_win32, hal_fs (arquivos,
                    compartilhado pelas duas), hal_avr, hal_arm_cm
 src/tools/         ksvm_main.c (runner), toolio, ksas/, ksdis/, ksimg/
@@ -90,7 +94,8 @@ tests/unit/        harness (test.h), fixture, oráculos, uma suíte por área
 tests/ksas/        testes do assembler
 tests/tools/       test_disasm, test_hal_fs, test_runner.sh, mkimg
 tests/fuzz/        fuzz_exec.c
-examples/          programas .ksasm (hello, fib, sieve, recursion, ...), lib/, v1_ported/
+examples/          programas .ksasm (hello, fib, sieve, recursion, float, ...), lib/,
+                   v1_ported/
 ports/avr/         main.c, ksvm_config_user.h, mkimage.py, size_report.py
 ports/arm_cm/      main.c, startup.c, linker.ld
 ports/common/      genprogs.c, expect_run.sh, isa_compact_check.c
@@ -126,5 +131,17 @@ if (vm.status == KSVM_FAULT) { /* ksvm_fault_name(vm.fault), vm.fault_addr */ }
   do formato L) precisa estar numa única região EXEC e `PC_next` não passa de
   `0xFFFFFFFF`; senão `KSVM_FAULT_PC_RANGE` antes de qualquer efeito.
 - **Não implementados** (geram `KSVM_FAULT_BAD_OPCODE`): `PUSHM`/`POPM`
-  (opcionais, fase 5), e MUL/DIV ou CLZ/CTZ/POPCNT quando desligados na config.
+  (opcionais, fase 5), e MUL/DIV, CLZ/CTZ/POPCNT ou a extensão F quando
+  desligados na config.
 - **Faults** são atômicos: a instrução não tem efeito e o `pc` fica nela.
+- **Extensão F** (doc 04 §5.7): opcodes `0xA0–0xB1` (`FADD FSUB FMUL FDIV FMIN
+  FMAX` com três operandos; `FSQRT FNEG FABS FRINT FFLOOR FCEIL FTRUNC FTOI FTOU
+  ITOF UTOF` com dois; `FCMP ra, rb`), binary32 nos registradores inteiros,
+  sempre RNE, subnormais, NaN canônico `0x7FC00000`, divisão por zero = ±inf,
+  sem exceções. `FCMP` usa a convenção ARM VFP (`<` BMI, `<=` BLS, `>` BGT,
+  `>=` BGE, `==` BEQ, `!=` BNE, unordered BVS). Soft-float em
+  `src/core/softfloat.c`, só inteiros, com e sem `KSVM_NO_INT64`; atrás de
+  `KSVM_ENABLE_FLOAT` (1 no desktop e Cortex-M, 0 no AVR: com F o firmware vai a
+  16674 B e estoura a meta de 12288 B). Presença: `CAPS(0x4000)` bit 2 (doc 06).
+  Assembler: `.float 1.5, -2e3, inf, nan, 0x1.8p1` e `fli rd, v` (= `movil rd,
+  bits`); exemplo em `examples/float.ksasm`.

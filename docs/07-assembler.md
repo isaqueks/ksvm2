@@ -51,6 +51,7 @@ Regras:
 | `.global sym` | Marca símbolo na tabela do `.ksx` (debug) |
 | `.equ nome, expr` / `nome = expr` | Constante simbólica |
 | `.byte` `.half` `.word` | Dados de 8/16/32 bits (listas) |
+| `.float v [, v…]` | IEEE 754 binary32 little-endian (lista); ver "Literais float" abaixo |
 | `.ascii "…"` / `.asciz "…"` | String sem / com `\0`. Escapes `\n \t \r \0 \\ \" \xHH` |
 | `.space n [, fill]` | `n` bytes (em `.bss` só reserva) |
 | `.align n` | Alinha a `n` bytes (potência de 2) |
@@ -61,6 +62,33 @@ Regras:
 | `.pic` | Transforma `la` em `ADRL` PC-relativo e marca flag PIC |
 
 Macros (`.macro`/`.endm` com parâmetros) ficam para a fase 5.
+
+### Extensão F: `.float`, `fli` e literais float
+
+As instruções `FADD..FCMP` (doc 04 §5.7) usam as formas das inteiras: `fadd rd, ra, rb`;
+`fsqrt rd, rb` (e `fneg rd` = `fneg rd, rd`, como `not`); `fcmp ra, rb` (exige dois
+registradores, como `cmp`). Nenhuma aceita imediato (`fadd r1, r2, 5` é erro). Os floats
+moram em registradores inteiros, então não há sintaxe de registrador nova.
+
+| Forma | Gera |
+|-------|------|
+| `.float 1.5, -2e3, inf` | Palavras de 32 bits com os bits binary32, little-endian (como `.word`); permitido em `.text/.rodata/.data`, não em `.bss`; sem alinhamento automático |
+| `fli rd, valor` | `MOVIL rd, bits` — sempre a forma longa (8 bytes); `fli r1, 1` carrega `1.0` (`0x3F800000`), não o inteiro 1 |
+
+Literais float (só em `.float` e `fli`; não entram em expressões nem aceitam símbolos):
+- decimal com fração e/ou expoente: `1.5`, `-2e3`, `.5`, `1e-45`, `3.4028235e38`;
+- inteiros (`1`, `16777217`) são lidos como valor real e arredondados para float;
+- hexadecimal do C99: `0x1.8p1` (= 3.0), `0x1p-149` (menor subnormal);
+- `inf`/`infinity` e `nan`, sem diferenciar maiúsculas, com sinal opcional.
+
+A conversão usa o `strtof` do host (o assembler não é freestanding): arredondamento correto
+para o mais próximo, empate par. `nan` gera o NaN canônico `0x7FC00000` (`-nan`:
+`0xFFC00000`), qualquer que seja o payload que o host produza. Um valor finito que não cabe
+em binary32 (`1e39`) é erro ("valor fora do alcance de float (use inf)"); underflow vira o
+subnormal ou zero mais próximo. Texto colado ao número (`1.5x`, `1.5.2`) é erro.
+
+O disassembler não tem nada específico: `fli` volta como `movil rd, 0x3FC00000` e `.float`
+como bytes de dados, o que mantém o round-trip `ksas → ksdis --raw → ksas` exato.
 
 ## 2. Arquitetura do `ksas`
 

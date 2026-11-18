@@ -40,6 +40,7 @@ ksvm2/
 │   ├── hal.h           struct ksvm_hal (funções do host)
 │   ├── vm.h            struct ksvm, init/map/reset/step/run
 │   ├── syscall.h       números de syscall, ksvm_arg/ret, ksvm_copy_*
+│   ├── softfloat.h     ksvm_f32_* (extensão F; doc 04 §5.7)
 │   ├── loader.h        cabeçalho .ksx e ksvm_load_image
 │   ├── ksx_write.h     gravação de .ksx (usada pelo ksas e pelos testes)
 │   ├── encode.h        codificadores ksvm_enc_* (assembler, testes, genprogs)
@@ -50,6 +51,7 @@ ksvm2/
 │   ├── core/           núcleo freestanding (só <string.h>)
 │   │   ├── isa.c       tabelas geradas de isa.def (completa ou compacta) e decodificação
 │   │   ├── alu.c       add/sub/mul/div/shift/rot com cálculo de flags
+│   │   ├── softfloat.c IEEE 754 binary32 só com inteiros (extensão F, KSVM_ENABLE_FLOAT)
 │   │   ├── cpu.c       estado da CPU, condições de Bcc
 │   │   ├── bus.c       regiões, lookup, acesso verificado, fetch
 │   │   ├── exec.c      fetch-decode-execute (§5), um switch por grupo de opcodes
@@ -247,7 +249,10 @@ Cada consumidor define `KSVM_OP` do seu jeito e inclui o arquivo:
 - `ksdis` → opcode → mnemônico/formato
 - `docs/04-isa.md` → pode ser regenerado por script (fase 5)
 
-Resultado: adicionar uma instrução = 1 linha no `.def` + 1 `case` no `exec.c`.
+Resultado: adicionar uma instrução = 1 linha no `.def` + 1 `case` no `exec.c`. Se a forma
+dos operandos não é a padrão do formato (R padrão = `rd, ra, rb`), ela entra também na lista
+de formas de `src/tools/ksas/mnemonic.c` e de `src/core/disasm.c`, como `NEG`/`CMP`: foi o
+caso das instruções de dois operandos e do `FCMP` da extensão F.
 
 ## 7. Configuração (`config.h`)
 
@@ -257,6 +262,8 @@ Resultado: adicionar uma instrução = 1 linha no `.def` + 1 `case` no `exec.c`.
 | `KSVM_ENABLE_TRACE` | 0 | Hook por instrução |
 | `KSVM_ENABLE_MULDIV` | 1 | MUL/DIV/REM (desligar economiza flash em AVR se o programa não usa) |
 | `KSVM_ENABLE_BITOPS` | 1 | CLZ/CTZ/POPCNT |
+| `KSVM_ENABLE_FLOAT` | 1 | Extensão F (binary32 em soft-float, doc 04 §5.7); a porta AVR usa 0 (não cabe nos 12 KB) |
+| `KSVM_NO_INT64` | 0 | MULH/MULHU e FMUL/FDIV sem `uint64_t` |
 | `KSVM_ENABLE_SYSCALL_FS` | 0 | OPEN/CLOSE/READ/WRITE em fd |
 | `KSVM_CHECK_STACK` | 1 | Verifica `stack_limit` em PUSH/CALL |
 | `KSVM_FAULT_NAMES` | 1 | Strings de nome de fault (desligar em AVR) |
