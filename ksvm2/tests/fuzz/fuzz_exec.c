@@ -25,6 +25,10 @@
  *     na última palavra do código tem o imm32 na região vizinha e precisa
  *     falhar com PC_RANGE em vez de ler de lá.
  *   - Com KSVM_ENABLE_TRACE, um hook confere r0/FLAGS a cada instrução.
+ *   - EXTENSÃO F: no replay, depois de cada instrução F, todo NaN produzido
+ *     é o canônico 0x7FC00000 e FCMP deixou uma das quatro combinações de
+ *     flags (N, ZC, C, CV). Registradores e imm32 recebem às vezes padrões
+ *     float especiais (zeros, inf, NaN, subnormais, extremos).
  *
  * -DKSVM_FUZZ_STRUCTURED=1: em vez de bytes aleatórios, gera instruções
  * VÁLIDAS (opcode da tabela da ISA + campos aleatórios com viés: bases de
@@ -104,6 +108,51 @@ static uint32_t below(uint32_t *s, uint32_t n)
     return rnd(s) % n;
 }
 
+/* Padrões binary32 que exercitam os casos especiais da extensão F (zeros,
+ * infinitos, NaNs com payload, subnormais, extremos, empates de
+ * conversão), usados nos registradores iniciais e nos imm32 do MOVIL. */
+static const uint32_t g_float_specials[] = {
+    0x00000000u, 0x80000000u, 0x7F800000u, 0xFF800000u, 0x7FC00000u, 0x7F800001u,
+    0xFFC12345u, 0x00000001u, 0x807FFFFFu, 0x00800000u, 0x7F7FFFFFu, 0xFF7FFFFFu,
+    0x3F800000u, 0xBF800000u, 0x3F000000u, 0x40200000u, 0x4B800001u, 0x4F000000u,
+    0xCF000000u, 0x4F800000u, 0x3EAAAAABu, 0x34000000u,
+};
+
+static uint32_t float_special(uint32_t *s)
+{
+    return g_float_specials[below(s, (uint32_t)(sizeof g_float_specials / sizeof g_float_specials[0]))];
+}
+
+/* Oráculo da extensão F, independente de softfloat.c, conferido no replay
+ * depois de cada instrução F concluída: todo NaN que uma operação produz é
+ * o canônico (FNEG/FABS só mexem no sinal e FTOI/FTOU dão inteiros, então
+ * ficam de fora), e FCMP deixa uma das quatro combinações de flags. */
+static void check_float_result(const ksvm *vm, uint32_t w)
+{
+#if KSVM_ENABLE_FLOAT
+    uint8_t op = ksvm_field_op(w);
+    uint32_t v = vm->cpu.r[ksvm_field_ra(w)], f = vm->cpu.flags;
+
+    if (op == KSVM_OP_FCMP) {
+        if (f != KSVM_FLAG_N && f != (KSVM_FLAG_Z | KSVM_FLAG_C) && f != KSVM_FLAG_C &&
+            f != (KSVM_FLAG_C | KSVM_FLAG_V)) {
+            fail("FCMP deixou uma combinacao de flags invalida");
+        }
+        return;
+    }
+    if (op < KSVM_OP_FADD || op > KSVM_OP_UTOF || op == KSVM_OP_FNEG || op == KSVM_OP_FABS ||
+        op == KSVM_OP_FTOI || op == KSVM_OP_FTOU) {
+        return;
+    }
+    if ((v & 0x7FFFFFFFu) > 0x7F800000u && v != 0x7FC00000u) {
+        fail("extensao F produziu NaN nao canonico");
+    }
+#else
+    (void)vm;
+    (void)w;
+#endif
+}
+
 /* ---- Regiões ---------------------------------------------------------- */
 
 #if HAVE_MMIO
@@ -146,6 +195,7 @@ static void trace_hook(void *ctx, const struct ksvm *vm, ksvm_trace_event ev,
 /* ---- Geração estruturada ---------------------------------------------- */
 
 #if KSVM_FUZZ_STRUCTURED
+static unsigned long g_float_insns;      /* instruções F geradas */
 static uint8_t g_ops[256];
 static unsigned g_nops;
 
@@ -175,10 +225,11 @@ static int32_t gen_small(uint32_t *s, int32_t span)
 
 static uint32_t gen_imm32(uint32_t *s)
 {
-    switch (below(s, 4u)) {
+    switch (below(s, 5u)) {
     case 0:  return RAM_BASE + below(s, RAM_SIZE);
     case 1:  return below(s, 64u);
     case 2:  return 0u - below(s, 64u);
+    case 3:  return float_special(s);       /* fli */
     default: return rnd(s);
     }
 }
@@ -208,6 +259,9 @@ static unsigned gen_insn(uint32_t *s, uint32_t *w, unsigned i, unsigned nwords)
         break;
     }
     info = &ksvm_isa[op];
+    if (op >= KSVM_OP_FADD && op <= KSVM_OP_FCMP) {
+        g_float_insns++;
+    }
 
     switch (op) {
     case KSVM_OP_MFSR: case KSVM_OP_MTSR:
@@ -336,11 +390,12 @@ static void build_world(world *wd, uint32_t seed, uint32_t sub)
 
     for (i = 1; i < 31u; i++) {
         uint32_t v;
-        switch (below(&s, 6u)) {
+        switch (below(&s, 7u)) {
         case 0:  v = RAM_BASE + below(&s, RAM_SIZE); break;
         case 1:  v = below(&s, 256u); break;
         case 2:  v = 4u * below(&s, CODE_SIZE / 4u); break;
         case 3:  v = MMIO_BASE + below(&s, MMIO_SIZE); break;
+        case 4:  v = float_special(&s); break;     /* operandos da extensão F */
         default: v = rnd(&s); break;
         }
         wd->vm.cpu.r[i] = v;
@@ -450,9 +505,14 @@ static void replay(world *wd, const outcome *o)
     uint32_t i;
 
     for (i = 0; i < o->insns; i++) {
-        uint32_t pc = wd->vm.cpu.pc;
-        ksvm_status st = ksvm_step(&wd->vm);
+        uint32_t pc = wd->vm.cpu.pc, w = 0u;
+        ksvm_status st;
+        (void)ksvm_bus_fetch32(&wd->vm.bus, pc, &w);
+        st = ksvm_step(&wd->vm);
         check_fetch_bounds(wd, pc);
+        if (st != KSVM_FAULT) {
+            check_float_result(&wd->vm, w);
+        }
         if (st == KSVM_FAULT || (st == KSVM_HALTED && i + 1u != o->insns)) {
             fail("replay divergiu (parou antes)");
             return;
@@ -538,6 +598,10 @@ int main(int argc, char **argv)
         printf(" %s=%lu", ksvm_fault_name((ksvm_fault)f), faults[f]);
     }
     printf("\n");
+#if KSVM_FUZZ_STRUCTURED
+    printf("  instrucoes F geradas (extensao F %s): %lu\n",
+           KSVM_ENABLE_FLOAT ? "ligada" : "desligada", g_float_insns);
+#endif
 #if KSVM_ENABLE_TRACE
     printf("  chamadas do trace: %lu\n", g_trace_calls);
 #endif
