@@ -13,10 +13,14 @@
  *                                           syscalls; esperado calculado
  *                                           aqui pela ALU do próprio núcleo
  *   genprogs fault <saida.ksx>              LDW fora do mapa (fault esperado)
+ *   genprogs fselftest <saida.ksx>          extensão F: CAPS e ~90 contas
+ *                                           com esperado do soft-float do
+ *                                           host; sem F (AVR): só avisa
  *
  * O selftest compara cada resultado com o valor que a ALU do host calcula:
  * se o binário AVR (int de 16 bits) ou ARM divergir do desktop, ele imprime
- * "selftest FAIL <n>".
+ * "selftest FAIL <n>". O fselftest faz o mesmo com o soft-float
+ * ("fselftest FAIL <n>").
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +28,11 @@
 
 #include "ksvm/ksvm.h"
 
-#define CODE_MAX  4096u
+#if !KSVM_ENABLE_FLOAT
+#error "genprogs calcula o esperado do fselftest com o soft-float: compile com KSVM_ENABLE_FLOAT=1"
+#endif
+
+#define CODE_MAX  6144u
 #define LABEL_MAX 32u
 #define FIX_MAX   256u
 #define RAM_BASE  UINT32_C(0x10000)
@@ -369,34 +377,19 @@ static void st_flow(st_ctx *c, unsigned l_double)
     r3(p, KSVM_OP_MOV, 3, 2, 0);       expect(c, KSVM_ERR_NOSYS);
 }
 
-static void gen_selftest(prog *p)
+/* Fim de um autoteste: "<ok_msg>" e HALT 0; em c->l_fail, "<fail_msg><id>\n"
+ * e HALT id. As strings ficam no próprio código, logo depois. */
+static void st_finish(st_ctx *c, const char *ok_msg, const char *fail_msg)
 {
-    st_ctx c;
-    unsigned l_double, l_ok, l_fail_msg, l_digits;
-    static const char ok_msg[] = "selftest ok\n";
-    static const char fail_msg[] = "selftest FAIL ";
-    static const uint8_t data[8] = { 0xEF, 0xBE, 0xAD, 0xDE, 0x80, 0, 0, 0 };
+    prog *p = c->p;
+    unsigned l_ok = new_label(p), l_fail_msg = new_label(p), l_digits = new_label(p);
 
-    memcpy(p->data, data, sizeof data);
-    p->data_size = sizeof data;
-    p->bss_size = 8u;
-    c.p = p;
-    c.id = 0;
-    c.l_fail = new_label(p);
-    l_double = new_label(p);
-    l_ok = new_label(p);
-    l_fail_msg = new_label(p);
-    l_digits = new_label(p);
-
-    st_alu(&c);
-    st_memory(&c);
-    st_flow(&c, l_double);
     puts_label(p, l_ok, (uint32_t)strlen(ok_msg));
     movi(p, 1, 0);
     halt(p);
 
-    /* Falha: "selftest FAIL <id>\n" e HALT id. Imprime até 3 dígitos. */
-    bind(p, c.l_fail);
+    /* Falha: imprime o id com até 3 dígitos. */
+    bind(p, c->l_fail);
     puts_label(p, l_fail_msg, (uint32_t)strlen(fail_msg));
     movi(p, 13, 100);
     bind(p, l_digits);
@@ -410,8 +403,31 @@ static void gen_selftest(prog *p)
     bcond(p, KSVM_COND_NE, l_digits);
     movi(p, 1, '\n');
     sys(p, KSVM_SYSCALL_PUTC);
-    movi(p, 1, c.id);                 /* não-zero */
+    movi(p, 1, c->id);                /* não-zero */
     halt(p);
+
+    bind(p, l_ok);       bytes(p, ok_msg, (uint32_t)strlen(ok_msg));
+    bind(p, l_fail_msg); bytes(p, fail_msg, (uint32_t)strlen(fail_msg));
+}
+
+static void gen_selftest(prog *p)
+{
+    st_ctx c;
+    unsigned l_double;
+    static const uint8_t data[8] = { 0xEF, 0xBE, 0xAD, 0xDE, 0x80, 0, 0, 0 };
+
+    memcpy(p->data, data, sizeof data);
+    p->data_size = sizeof data;
+    p->bss_size = 8u;
+    c.p = p;
+    c.id = 0;
+    c.l_fail = new_label(p);
+    l_double = new_label(p);
+
+    st_alu(&c);
+    st_memory(&c);
+    st_flow(&c, l_double);
+    st_finish(&c, "selftest ok\n", "selftest FAIL ");
 
     bind(p, l_double);                 /* r3 *= 2, usando a pilha */
     r3(p, KSVM_OP_PUSH, 4, 0, 0);
@@ -419,9 +435,107 @@ static void gen_selftest(prog *p)
     r3(p, KSVM_OP_MOV, 3, 4, 0);
     r3(p, KSVM_OP_POP, 4, 0, 0);
     r3(p, KSVM_OP_RET, 0, 0, 0);
+}
 
-    bind(p, l_ok);       bytes(p, ok_msg, (uint32_t)strlen(ok_msg));
-    bind(p, l_fail_msg); bytes(p, fail_msg, (uint32_t)strlen(fail_msg));
+/* ---- fselftest (extensão F) ------------------------------------------- */
+
+/* r3 = op(r4) numa instrução F de dois operandos "rd, rb". */
+static void check_u(st_ctx *c, uint8_t op, uint32_t a, uint32_t expected)
+{
+    movl(c->p, 4, a);
+    r3(c->p, op, 3, 4, 0);
+    expect(c, expected);
+}
+
+/* FCMP r4, r5 e r3 = FLAGS. */
+static void check_fcmp(st_ctx *c, uint32_t a, uint32_t b)
+{
+    movl(c->p, 4, a);
+    movl(c->p, 5, b);
+    r3(c->p, KSVM_OP_FCMP, 4, 5, 0);
+    i3(c->p, KSVM_OP_MFSR, 3, 0, (int32_t)KSVM_SR_FLAGS);
+    expect(c, ksvm_f32_cmp(a, b));
+}
+
+/*
+ * Extensão F: se CAPS(KSVM_CAPS_ISA) não tem o bit F (porta AVR), imprime
+ * "fselftest: sem extensao F" e termina com 0. Senão confere todas as
+ * instruções F contra o soft-float do host (o mesmo softfloat.c compilado
+ * aqui): pares de borda (1/3, overflow, subnormal, empates, NaN com
+ * payload, -0/+0) e pares do xorshift; o binário embarcado (Thumb-1, com
+ * as rotinas de 64 bits da libgcc) tem de dar os mesmos bits.
+ */
+static void gen_fselftest(prog *p)
+{
+    static const uint32_t pairs[][2] = {
+        { 0x3F800000u, 0x40400000u }, { 0x7F7FFFFFu, 0x7F7FFFFFu },
+        { 0x00000001u, 0x3F000000u }, { 0x4B800001u, 0x3F800000u },
+        { 0xFFC12345u, 0x3F800000u }, { 0x80000000u, 0x00000000u },
+    };
+    static const uint32_t singles[] = { 0x40200000u, 0xBFC00000u, 0x4F32D05Eu, 0x007FFFFFu };
+    static const uint8_t bin_ops[] = {
+        KSVM_OP_FADD, KSVM_OP_FSUB, KSVM_OP_FMUL, KSVM_OP_FDIV, KSVM_OP_FMIN, KSVM_OP_FMAX,
+    };
+    static const char none_msg[] = "fselftest: sem extensao F\n";
+    st_ctx c;
+    unsigned l_has, l_none, i, k;
+    uint32_t x = KSVM_RNG_SEED;
+
+    c.p = p;
+    c.id = 0;
+    c.l_fail = new_label(p);
+    l_has = new_label(p);
+    l_none = new_label(p);
+
+    movl(p, 1, KSVM_CAPS_ISA);
+    sys(p, KSVM_SYSCALL_CAPS);
+    i3(p, KSVM_OP_ANDI, 1, 1, (int32_t)KSVM_CAPS_ISA_F);
+    bcond(p, KSVM_COND_NE, l_has);
+    puts_label(p, l_none, (uint32_t)strlen(none_msg));
+    movi(p, 1, 0);
+    halt(p);
+    bind(p, l_none);
+    bytes(p, none_msg, (uint32_t)strlen(none_msg));
+
+    bind(p, l_has);
+    for (i = 0; i < 8u; i++) {
+        uint32_t a, b;
+        if (i < sizeof pairs / sizeof pairs[0]) {
+            a = pairs[i][0];
+            b = pairs[i][1];
+        } else {
+            a = x = xorshift(x);
+            b = x = xorshift(x);
+        }
+        for (k = 0; k < sizeof bin_ops; k++) {
+            uint32_t want;
+            switch (bin_ops[k]) {
+            case KSVM_OP_FADD: want = ksvm_f32_add(a, b); break;
+            case KSVM_OP_FSUB: want = ksvm_f32_sub(a, b); break;
+            case KSVM_OP_FMUL: want = ksvm_f32_mul(a, b); break;
+            case KSVM_OP_FDIV: want = ksvm_f32_div(a, b); break;
+            case KSVM_OP_FMIN: want = ksvm_f32_min(a, b); break;
+            default:           want = ksvm_f32_max(a, b); break;
+            }
+            check_r(&c, bin_ops[k], a, b, want);
+        }
+        check_fcmp(&c, a, b);
+    }
+    for (i = 0; i < 5u; i++) {
+        uint32_t a = (i < sizeof singles / sizeof singles[0]) ? singles[i] : (x = xorshift(x));
+        check_u(&c, KSVM_OP_FSQRT, a, ksvm_f32_sqrt(a));
+        check_u(&c, KSVM_OP_FNEG, a, ksvm_f32_neg(a));
+        check_u(&c, KSVM_OP_FABS, a, ksvm_f32_abs(a));
+        check_u(&c, KSVM_OP_FRINT, a, ksvm_f32_round_int(a, KSVM_F32_RNE));
+        check_u(&c, KSVM_OP_FFLOOR, a, ksvm_f32_round_int(a, KSVM_F32_FLOOR));
+        check_u(&c, KSVM_OP_FCEIL, a, ksvm_f32_round_int(a, KSVM_F32_CEIL));
+        check_u(&c, KSVM_OP_FTRUNC, a, ksvm_f32_round_int(a, KSVM_F32_TRUNC));
+        check_u(&c, KSVM_OP_FTOI, a, ksvm_f32_to_i32(a));
+        check_u(&c, KSVM_OP_FTOU, a, ksvm_f32_to_u32(a));
+        check_u(&c, KSVM_OP_ITOF, a, ksvm_i32_to_f32(a));
+        check_u(&c, KSVM_OP_UTOF, a, ksvm_u32_to_f32(a));
+    }
+    st_finish(&c, "fselftest ok\n", "fselftest FAIL ");
 }
 
 static void gen_fault(prog *p)
@@ -436,7 +550,7 @@ int main(int argc, char **argv)
     static prog p;
 
     if (argc < 3) {
-        die("uso: genprogs hello|blink|selftest|fault saida.ksx [arg]");
+        die("uso: genprogs hello|blink|selftest|fselftest|fault saida.ksx [arg]");
     }
     if (strcmp(argv[1], "hello") == 0 && argc == 4) {
         gen_hello(&p, argv[3]);
@@ -444,6 +558,8 @@ int main(int argc, char **argv)
         gen_blink(&p, atoi(argv[3]));
     } else if (strcmp(argv[1], "selftest") == 0) {
         gen_selftest(&p);
+    } else if (strcmp(argv[1], "fselftest") == 0) {
+        gen_fselftest(&p);
     } else if (strcmp(argv[1], "fault") == 0) {
         gen_fault(&p);
     } else {

@@ -1,10 +1,10 @@
 # mk/ports.mk — portas embarcadas (fase 4): ATmega328P (simavr) e
 # Cortex-M (QEMU mps2-an385). Incluído pelo Makefile principal.
 #
-#   make ports-avr    build/ports/avr/avr-{hello,blink,selftest,fault}.elf
+#   make ports-avr    build/ports/avr/avr-{hello,blink,selftest,fselftest,fault}.elf
 #   make test-avr     roda cada firmware no simavr e confere a UART
 #   make size-avr     flash/RAM por módulo (mapa do linker) e meta RNF-04
-#   make ports-arm    build/ports/arm/arm-{hello,selftest,fault}.elf
+#   make ports-arm    build/ports/arm/arm-{hello,blink,selftest,fselftest,fault}.elf
 #   make test-arm     roda cada firmware no qemu-system-arm e confere a UART
 #   make test-ports   test-avr + test-arm
 #   make avr-custom KSX=prog.ksx / arm-custom KSX=prog.ksx   firmware com um
@@ -30,8 +30,8 @@ PORTS_HDRS = $(wildcard include/ksvm/*.h) include/ksvm/isa.def
 
 .PHONY: ports-avr test-avr size-avr ports-arm test-arm test-ports \
         avr-elfs arm-elfs avr-size-report avr-config-check \
-        avr-hello.elf avr-blink.elf avr-selftest.elf avr-fault.elf \
-        arm-hello.elf arm-selftest.elf arm-fault.elf
+        avr-hello.elf avr-blink.elf avr-selftest.elf avr-fselftest.elf avr-fault.elf \
+        arm-hello.elf arm-blink.elf arm-selftest.elf arm-fselftest.elf arm-fault.elf
 
 # ---- Programas do guest (host) ----------------------------------------
 
@@ -48,7 +48,7 @@ $(PORTS_KSX)/hello-arm.ksx: $(PORTS_GEN)
 $(PORTS_KSX)/blink.ksx: $(PORTS_GEN)
 	@mkdir -p $(dir $@)
 	$(PORTS_GEN) blink $@ 6
-$(PORTS_KSX)/selftest.ksx $(PORTS_KSX)/fault.ksx: $(PORTS_KSX)/%.ksx: $(PORTS_GEN)
+$(PORTS_KSX)/selftest.ksx $(PORTS_KSX)/fselftest.ksx $(PORTS_KSX)/fault.ksx: $(PORTS_KSX)/%.ksx: $(PORTS_GEN)
 	@mkdir -p $(dir $@)
 	$(PORTS_GEN) $* $@
 
@@ -63,7 +63,7 @@ $(PORTS_DIR)/isa_compact_check: ports/common/isa_compact_check.c src/core/isa.c 
 AVR_DIR     = $(PORTS_DIR)/avr
 AVR_MCU     = atmega328p
 AVR_F_CPU   = 16000000UL
-AVR_PROGS   = hello blink selftest fault
+AVR_PROGS   = hello blink selftest fselftest fault
 AVR_DEFS    =
 # Medido (firmware hello, antes das reduções no código): -Os puro 16174 B;
 # + -mcall-prologues 15084; + -mrelax 14840; + -mstrict-X
@@ -117,11 +117,12 @@ endef
 $(eval $(call AVR_PROG_RULES,hello,hello-avr))
 $(eval $(call AVR_PROG_RULES,blink,blink))
 $(eval $(call AVR_PROG_RULES,selftest,selftest))
+$(eval $(call AVR_PROG_RULES,fselftest,fselftest))
 $(eval $(call AVR_PROG_RULES,fault,fault))
 
 avr-elfs: $(AVR_PROGS:%=$(AVR_DIR)/avr-%.elf)
 
-avr-hello.elf avr-blink.elf avr-selftest.elf avr-fault.elf:
+avr-hello.elf avr-blink.elf avr-selftest.elf avr-fselftest.elf avr-fault.elf:
 	@$(MAKE) --no-print-directory $(AVR_DIR)/$@
 
 AVR_HAVE = command -v avr-gcc >/dev/null 2>&1 && command -v $(PORTS_PY) >/dev/null 2>&1
@@ -162,6 +163,8 @@ test-avr:
 	        "101010 time ok" "KSVM halt 00000000" -- $(AVR_SIM) $(AVR_DIR)/avr-blink.elf || fail=1; \
 	    $(PORTS_RUN) avr-selftest $(AVR_DIR)/avr-selftest.log 60 \
 	        "selftest ok" "KSVM halt 00000000" -- $(AVR_SIM) $(AVR_DIR)/avr-selftest.elf || fail=1; \
+	    $(PORTS_RUN) avr-fselftest $(AVR_DIR)/avr-fselftest.log 30 \
+	        "fselftest: sem extensao F" "KSVM halt 00000000" -- $(AVR_SIM) $(AVR_DIR)/avr-fselftest.elf || fail=1; \
 	    $(PORTS_RUN) avr-fault $(AVR_DIR)/avr-fault.log 30 \
 	        "KSVM FAULT 04 pc=00000008 addr=7FFFFFF0" -- $(AVR_SIM) $(AVR_DIR)/avr-fault.elf || fail=1; \
 	    if [ $$fail -ne 0 ]; then echo "test-avr: FALHOU"; exit 1; fi; \
@@ -175,12 +178,14 @@ test-avr:
 #   tabela-768   tabela completa, mas na flash
 #   no-int64     MULH/MULHU por produtos de 16 bits
 #   sem-pwm      HAL sem PWM_WRITE
+#   com-float    extensão F ligada (a porta desliga: não cabe na meta)
 # (KSVM_ISA_NAMES/FAULT_NAMES não mudam nada aqui: o firmware não chama
 # ksvm_op_name/ksvm_fault_name e o --gc-sections descarta os nomes.)
 AVR_SIZE_VARIANTS = tabela-ram:-DKSVM_TABLE_PROGMEM=0~-DKSVM_ISA_COMPACT=0 \
                     tabela-768:-DKSVM_ISA_COMPACT=0 \
                     no-int64:-DKSVM_NO_INT64=1 \
-                    sem-pwm:-DKSVM_HAL_AVR_PWM=0
+                    sem-pwm:-DKSVM_HAL_AVR_PWM=0 \
+                    com-float:-DKSVM_ENABLE_FLOAT=1
 
 avr-size-report: $(AVR_DIR)/avr-hello.elf
 	@echo "== size-avr: porta (config de ports/avr/ksvm_config_user.h) =="
@@ -211,7 +216,7 @@ size-avr:
 
 ARM_DIR     = $(PORTS_DIR)/arm
 ARM_CPU     = cortex-m0
-ARM_PROGS   = hello blink selftest fault
+ARM_PROGS   = hello blink selftest fselftest fault
 # Config de MCU (sem ksvm_config_user.h: a flash é endereçável e não
 # precisa de KSVM_TABLE_PROGMEM). Com os padrões de desktop a tabela com
 # ponteiros de nome mantém as strings vivas: isa.o vai de ~2,6 KB para ~0,5 KB.
@@ -261,11 +266,12 @@ endef
 $(eval $(call ARM_PROG_RULES,hello,hello-arm))
 $(eval $(call ARM_PROG_RULES,blink,blink))
 $(eval $(call ARM_PROG_RULES,selftest,selftest))
+$(eval $(call ARM_PROG_RULES,fselftest,fselftest))
 $(eval $(call ARM_PROG_RULES,fault,fault))
 
 arm-elfs: $(ARM_PROGS:%=$(ARM_DIR)/arm-%.elf)
 
-arm-hello.elf arm-blink.elf arm-selftest.elf arm-fault.elf:
+arm-hello.elf arm-blink.elf arm-selftest.elf arm-fselftest.elf arm-fault.elf:
 	@$(MAKE) --no-print-directory $(ARM_DIR)/$@
 
 ARM_HAVE = command -v arm-none-eabi-gcc >/dev/null 2>&1 && command -v $(PORTS_PY) >/dev/null 2>&1
@@ -294,6 +300,8 @@ test-arm:
 	        "000000 time ok" "KSVM halt 00000000" -- $(ARM_QEMU) $(ARM_DIR)/arm-blink.elf || fail=1; \
 	    $(PORTS_RUN) arm-selftest $(ARM_DIR)/arm-selftest.log 30 \
 	        "selftest ok" "KSVM halt 00000000" -- $(ARM_QEMU) $(ARM_DIR)/arm-selftest.elf || fail=1; \
+	    $(PORTS_RUN) arm-fselftest $(ARM_DIR)/arm-fselftest.log 30 \
+	        "fselftest ok" "KSVM halt 00000000" -- $(ARM_QEMU) $(ARM_DIR)/arm-fselftest.elf || fail=1; \
 	    $(PORTS_RUN) arm-fault $(ARM_DIR)/arm-fault.log 30 \
 	        "KSVM FAULT 04 pc=00000008 addr=7FFFFFF0" -- $(ARM_QEMU) $(ARM_DIR)/arm-fault.elf || fail=1; \
 	    if [ $$fail -ne 0 ]; then echo "test-arm: FALHOU"; exit 1; fi; \
