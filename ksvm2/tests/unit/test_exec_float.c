@@ -210,6 +210,55 @@ TEST(every_opcode_dispatches_to_softfloat)
     }
 }
 
+/*
+ * Os pares que every_opcode_dispatches_to_softfloat não separa (pi dá 3 em
+ * FRINT, FFLOOR e FTRUNC; FTOI = FTOU e ITOF = UTOF para positivos; FNEG e
+ * FABS só diferem em positivos): com 2.7, -2.3 e -2.7 os quatro
+ * arredondamentos, as duas conversões para inteiro e as duas de inteiro
+ * dão vetores de resultados distintos, então trocar o despacho de dois
+ * deles no exec.c falha aqui.
+ */
+TEST(dispatch_distinguishes_similar_opcodes)
+{
+    static const uint32_t vals[] = { 0x40490FDBu, 0x402CCCCDu, 0xC0133333u, 0xC02CCCCDu };
+    static const uint8_t ops[] = {
+        KSVM_OP_FNEG, KSVM_OP_FABS, KSVM_OP_FRINT, KSVM_OP_FFLOOR, KSVM_OP_FCEIL,
+        KSVM_OP_FTRUNC, KSVM_OP_FTOI, KSVM_OP_FTOU, KSVM_OP_ITOF, KSVM_OP_UTOF,
+    };
+    unsigned i, k;
+    for (k = 0; k < sizeof ops / sizeof ops[0]; k++) {
+        for (i = 0; i < sizeof vals / sizeof vals[0]; i++) {
+            uint32_t a = vals[i], want;
+            fixture f;
+            switch (ops[k]) {
+            case KSVM_OP_FNEG:   want = ksvm_f32_neg(a); break;
+            case KSVM_OP_FABS:   want = ksvm_f32_abs(a); break;
+            case KSVM_OP_FRINT:  want = ksvm_f32_round_int(a, KSVM_F32_RNE); break;
+            case KSVM_OP_FFLOOR: want = ksvm_f32_round_int(a, KSVM_F32_FLOOR); break;
+            case KSVM_OP_FCEIL:  want = ksvm_f32_round_int(a, KSVM_F32_CEIL); break;
+            case KSVM_OP_FTRUNC: want = ksvm_f32_round_int(a, KSVM_F32_TRUNC); break;
+            case KSVM_OP_FTOI:   want = ksvm_f32_to_i32(a); break;
+            case KSVM_OP_FTOU:   want = ksvm_f32_to_u32(a); break;
+            case KSVM_OP_ITOF:   want = ksvm_i32_to_f32(a); break;
+            default:             want = ksvm_u32_to_f32(a); break;
+            }
+            RUN(&f, LI(2, a), ksvm_enc_r(ops[k], 1, 2, 0), HALT);
+            if (REG(&f, 1) != want) {
+                test_note(t_, "op 0x%02X a=0x%08lX", ops[k], (unsigned long)a);
+            }
+            ASSERT_EQ_U32(REG(&f, 1), want);
+        }
+    }
+    /* os valores separam mesmo cada par (senão o teste não pegaria a troca) */
+    ASSERT_EQ_U32(ksvm_f32_round_int(0x402CCCCDu, KSVM_F32_RNE), 0x40400000u);     /* 2.7 -> 3 */
+    ASSERT_EQ_U32(ksvm_f32_round_int(0x402CCCCDu, KSVM_F32_FLOOR), 0x40000000u);   /* 2 */
+    ASSERT_EQ_U32(ksvm_f32_round_int(0xC0133333u, KSVM_F32_RNE), 0xC0000000u);     /* -2.3 -> -2 */
+    ASSERT_EQ_U32(ksvm_f32_round_int(0xC0133333u, KSVM_F32_CEIL), 0xC0000000u);    /* -2 */
+    ASSERT_EQ_U32(ksvm_f32_round_int(0xC0133333u, KSVM_F32_FLOOR), 0xC0400000u);   /* -3 */
+    ASSERT_EQ_U32(ksvm_f32_round_int(0xC02CCCCDu, KSVM_F32_RNE), 0xC0400000u);     /* -2.7 -> -3 */
+    ASSERT_EQ_U32(ksvm_f32_round_int(0xC02CCCCDu, KSVM_F32_TRUNC), 0xC0000000u);   /* -2 */
+}
+
 /* Programa: raiz de 2 por Newton, x = (x + 2/x) / 2, até FCMP dar igual
  * (no máximo 20 passos); confere com a mesma conta feita em C. */
 TEST(newton_sqrt_program)
@@ -294,6 +343,7 @@ SUITE(exec_float)
     RUN_TEST(fcmp_flags_four_cases);
     RUN_TEST(fcmp_branch_mapping_matches_c);
     RUN_TEST(every_opcode_dispatches_to_softfloat);
+    RUN_TEST(dispatch_distinguishes_similar_opcodes);
     RUN_TEST(newton_sqrt_program);
 #else
     RUN_TEST(float_disabled_is_bad_opcode);
