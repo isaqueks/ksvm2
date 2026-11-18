@@ -16,7 +16,8 @@
 
 #define KSAS_TEST_SUITES(X) \
     X(ksas_lexer) X(ksas_expr) X(ksas_encode) X(ksas_pseudo) \
-    X(ksas_directives) X(ksas_errors) X(ksas_run) X(ksas_review)
+    X(ksas_directives) X(ksas_errors) X(ksas_run) X(ksas_review) \
+    X(ksas_float)
 
 #define KSAS_TEST_DECLARE(name) SUITE(name);
 KSAS_TEST_SUITES(KSAS_TEST_DECLARE)

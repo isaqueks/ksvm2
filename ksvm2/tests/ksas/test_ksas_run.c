@@ -250,6 +250,17 @@ static const example examples[] = {
       "0x12345678 ^ -1 = 0xEDCBA987\n" },
     { "examples/jumptable.ksasm", NULL,
       "0: zero\n1: um\n2: dois\n3: tres\n4: outro\n5: outro\n" },
+    /* Bits conferidos contra o float do host (x86-64 SSE). */
+    { "examples/float.ksasm", NULL,
+      "1/3 = 0x3EAAAAAB ~ 0.3333\n"
+      "sqrt(2) = 0x3FB504F3 ~ 1.4142\n"
+      "pi * 2.5^2 = 0x419D1463 ~ 19.6350\n"
+      "H(10) = 0x403B7438 ~ 2.9290\n"
+      "ftoi(-3.75) = 0xFFFFFFFD\n"
+      "ftoi(1e10) = 0x7FFFFFFF\n"
+      "ftou(-1) = 0x00000000\n"
+      "0/0 = 0x7FC00000 (unordered)\n"
+      "-0 == +0\n" },
     { "examples/v1_ported/ask_name.ksasm", "Isaque\n",
       "Type your name: Your name is Isaque\n" },
     { "examples/v1_ported/show_string.ksasm", NULL, "This is a string message!\n" },

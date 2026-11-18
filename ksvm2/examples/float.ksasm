@@ -1,0 +1,183 @@
+; float.ksasm — extensão F (doc 04 §5.7): IEEE 754 binary32 nos
+; registradores inteiros. Mostra fli/.float, as quatro operações, FSQRT,
+; ITOF/FTOI/FTOU (com saturação), FRINT, FCMP + Bcc (inclusive NaN) e a
+; consulta CAPS(0x4000), que diz se a VM tem a extensão (a porta AVR não
+; tem: lá o programa avisa e sai com 1 em vez de cair em BAD_OPCODE).
+;
+; Cada resultado sai em hexadecimal (os bits exatos, iguais em qualquer
+; host) e em decimal com 4 casas.
+;
+; Saída esperada:
+;   1/3 = 0x3EAAAAAB ~ 0.3333
+;   sqrt(2) = 0x3FB504F3 ~ 1.4142
+;   pi * 2.5^2 = 0x419D1463 ~ 19.6350
+;   H(10) = 0x403B7438 ~ 2.9290
+;   ftoi(-3.75) = 0xFFFFFFFD
+;   ftoi(1e10) = 0x7FFFFFFF
+;   ftou(-1) = 0x00000000
+;   0/0 = 0x7FC00000 (unordered)
+;   -0 == +0
+
+        .text
+        .global _start
+_start:
+        li      r1, 0x4000          ; CAPS(0x4000): máscara de extensões da ISA
+        syscall CAPS
+        andi    r1, r1, 4           ; bit 2 = F
+        beq     no_float
+
+        ; 1/3
+        la      r1, s_third
+        call    print_str
+        fli     r2, 1
+        fli     r3, 3
+        fdiv    r16, r2, r3
+        call    show                ; r16 = valor
+
+        ; sqrt(2)
+        la      r1, s_sqrt2
+        call    print_str
+        fli     r2, 2.0
+        fsqrt   r16, r2
+        call    show
+
+        ; pi * r^2 com as constantes em .rodata (.float)
+        la      r1, s_area
+        call    print_str
+        la      r5, k_pi
+        ldw     r2, [r5]            ; pi
+        ldw     r3, [r5 + 4]        ; 2.5
+        fmul    r3, r3, r3
+        fmul    r16, r2, r3
+        call    show
+
+        ; H(10) = 1 + 1/2 + ... + 1/10, k inteiro convertido com ITOF
+        la      r1, s_harm
+        call    print_str
+        fli     r16, 0
+        li      r17, 1
+        fli     r18, 1.0
+h_loop:
+        itof    r1, r17
+        fdiv    r1, r18, r1
+        fadd    r16, r16, r1
+        inc     r17
+        cmpi    r17, 10
+        bls     h_loop              ; k <= 10 (inteiro, sem sinal)
+        call    show
+
+        ; conversões truncam e saturam
+        la      r1, s_ftoi1
+        call    print_str
+        fli     r2, -3.75
+        ftoi    r1, r2
+        call    print_hex
+        call    newline
+        la      r1, s_ftoi2
+        call    print_str
+        fli     r2, 1e10
+        ftoi    r1, r2
+        call    print_hex
+        call    newline
+        la      r1, s_ftou
+        call    print_str
+        fli     r2, -1
+        ftou    r1, r2
+        call    print_hex
+        call    newline
+
+        ; 0/0 = NaN canônico; FCMP com NaN é "unordered" (V = 1: BVS)
+        la      r1, s_nan
+        call    print_str
+        fli     r2, 0
+        fdiv    r16, r2, r2
+        mov     r1, r16
+        call    print_hex
+        fcmp    r16, r16
+        bvc     nan_done            ; == daria Z; NaN nunca é igual a si mesmo
+        la      r1, s_unord
+        call    print_str
+nan_done:
+        call    newline
+
+        ; -0 e +0 são iguais para FCMP
+        fli     r2, -0.0
+        fli     r3, 0.0
+        fcmp    r2, r3
+        bne     done
+        la      r1, s_zeros
+        call    print_str
+        call    newline
+done:
+        li      r1, 0
+        halt
+
+no_float:
+        la      r1, s_nofloat
+        call    print_str
+        li      r1, 1
+        halt
+
+; show(r16 = float): "0x<bits> ~ <decimal>\n". Preserva r16.
+show:
+        mov     r1, r16
+        call    print_hex
+        la      r1, s_approx
+        call    print_str
+        mov     r1, r16
+        call    print_fix4
+        call    newline
+        ret
+
+; print_fix4(r1 = float): "[-]I.FFFF", arredondado a 4 casas (FRINT: RNE).
+; Usa r1, r2, r5..r7; preserva r16 e r17.
+print_fix4:
+        push    r16, r17
+        fli     r5, 10000
+        fmul    r5, r1, r5
+        frint   r5, r5
+        ftoi    r16, r5             ; round(x * 10000), satura em |x| >= 214748
+        cmpi    r16, 0
+        bge     pf_pos
+        li      r1, '-'
+        syscall PUTC
+        neg     r16, r16
+pf_pos:
+        li      r17, 10000
+        divu    r1, r16, r17
+        call    print_u32           ; parte inteira
+        li      r1, '.'
+        syscall PUTC
+        remu    r16, r16, r17       ; 0..9999, com os zeros à esquerda
+        li      r17, 1000
+pf_digit:
+        divu    r1, r16, r17
+        addi    r1, r1, '0'
+        syscall PUTC
+        remu    r16, r16, r17
+        li      r1, 10
+        divu    r17, r17, r1
+        cmpi    r17, 0
+        bne     pf_digit
+        pop     r17, r16
+        ret
+
+        .rodata
+        .align  4
+k_pi:   .float  3.14159265358979, 2.5
+
+        .data
+s_third:   .asciz "1/3 = "
+s_sqrt2:   .asciz "sqrt(2) = "
+s_area:    .asciz "pi * 2.5^2 = "
+s_harm:    .asciz "H(10) = "
+s_ftoi1:   .asciz "ftoi(-3.75) = "
+s_ftoi2:   .asciz "ftoi(1e10) = "
+s_ftou:    .asciz "ftou(-1) = "
+s_nan:     .asciz "0/0 = "
+s_unord:   .asciz " (unordered)"
+s_zeros:   .asciz "-0 == +0"
+s_approx:  .asciz " ~ "
+s_nofloat: .asciz "esta VM nao tem a extensao F\n"
+
+        .include "lib/io.ksasm"

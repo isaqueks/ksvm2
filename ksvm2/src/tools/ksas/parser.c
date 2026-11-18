@@ -1,6 +1,8 @@
 /*
  * parser.c — linhas, labels, constantes e diretivas (ver parser.h).
  */
+#include <ctype.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,6 +12,43 @@
 #include "symtab.h"
 
 /* ---- Auxiliares ------------------------------------------------------- */
+
+/*
+ * Literal float do token corrente. O lexer só conhece inteiros ("1.5" vira
+ * TK_ERROR, "-2e3" é TK_MINUS + erro, "inf" é TK_IDENT), então o texto cru
+ * da linha a partir da coluna do token vai para o strtof do host, que
+ * arredonda RNE e aceita decimal, expoente, hexadecimal ("0x1.8p1"), "inf"
+ * e "nan". Depois o lexer recomeça logo após o literal. Quem chama chegou
+ * aqui avançando o cursor sem reportar TK_ERROR (ksas_cur_advance).
+ */
+bool ksas_parse_float(ksas_ctx *c, ksas_cursor *cur, uint32_t *bits)
+{
+    const char *start;
+    char *end;
+    float f;
+    uint32_t u;
+
+    if (ksas_at_eol(cur)) {
+        return ksas_perr(c, cur->tok.col, "esperado valor float");
+    }
+    start = cur->lx.line_start + (cur->tok.col - 1u);
+    errno = 0;
+    f = strtof(start, &end);
+    if (end == start || isalnum((unsigned char)*end) || *end == '_' || *end == '.') {
+        return ksas_perr(c, cur->tok.col, "valor float invalido");
+    }
+    memcpy(&u, &f, sizeof u);
+    if (errno == ERANGE && (u & UINT32_C(0x7FFFFFFF)) == UINT32_C(0x7F800000)) {
+        return ksas_perr(c, cur->tok.col, "valor fora do alcance de float (use inf)");
+    }
+    if ((u & UINT32_C(0x7FFFFFFF)) > UINT32_C(0x7F800000)) {
+        u = (u & UINT32_C(0x80000000)) | UINT32_C(0x7FC00000);   /* NaN canônico */
+    }
+    *bits = u;
+    cur->lx.p = end;
+    ksas_cur_advance(cur);
+    return true;
+}
 
 bool ksas_at_eol(const ksas_cursor *cur)
 {
@@ -298,6 +337,32 @@ static bool dir_word(ksas_ctx *c, ksas_cursor *cur, uint32_t col)
     return data_list(c, cur, col, 4u);
 }
 
+/* .float v[, v...]: binary32 little-endian, como .word dos bits. Só
+ * literais (ksas_parse_float), não expressões. O cursor chega aqui sem que
+ * o primeiro valor tenha sido reportado como TK_ERROR (parse_directive). */
+static bool dir_float(ksas_ctx *c, ksas_cursor *cur, uint32_t col)
+{
+    uint32_t first = c->nelems, run_col = cur->tok.col, bits, vcol, node;
+
+    if (!require_initialized(c, col)) {
+        return false;
+    }
+    for (;;) {
+        vcol = cur->tok.col;
+        if (!ksas_parse_float(c, cur, &bits)) {
+            return false;
+        }
+        node = ksas_const_node(c, bits, vcol);
+        if (node == KSAS_NONE || !append_elem(c, node)) {
+            return false;
+        }
+        if (cur->tok.kind != TK_COMMA) {
+            return flush_data(c, first, run_col, 4u);
+        }
+        ksas_cur_advance(cur);                 /* idem: o próximo pode ser "2.5" */
+    }
+}
+
 static bool string_list(ksas_ctx *c, ksas_cursor *cur, uint32_t col, bool zero_term)
 {
     if (!require_initialized(c, col)) {
@@ -509,10 +574,10 @@ static const directive directives[] = {
     { "text", dir_text },     { "rodata", dir_rodata }, { "data", dir_data },
     { "bss", dir_bss },       { "global", dir_global }, { "globl", dir_global },
     { "equ", dir_equ },       { "byte", dir_byte },     { "half", dir_half },
-    { "word", dir_word },     { "ascii", dir_ascii },   { "asciz", dir_asciz },
-    { "space", dir_space },   { "align", dir_align },   { "org", dir_org },
-    { "entry", dir_entry },   { "stack", dir_stack },   { "include", dir_include },
-    { "pic", dir_pic }
+    { "word", dir_word },     { "float", dir_float },   { "ascii", dir_ascii },
+    { "asciz", dir_asciz },   { "space", dir_space },   { "align", dir_align },
+    { "org", dir_org },       { "entry", dir_entry },   { "stack", dir_stack },
+    { "include", dir_include }, { "pic", dir_pic }
 };
 
 static bool parse_directive(ksas_ctx *c, ksas_cursor *cur)
@@ -522,7 +587,11 @@ static bool parse_directive(ksas_ctx *c, ksas_cursor *cur)
 
     for (i = 0; i < sizeof directives / sizeof directives[0]; i++) {
         if (ksas_name_eq(t.text, t.len, directives[i].name)) {
-            ksas_advance(c, cur);
+            if (directives[i].fn == dir_float) {
+                ksas_cur_advance(cur);       /* "1.5" não é token: ver ksas_parse_float */
+            } else {
+                ksas_advance(c, cur);
+            }
             return directives[i].fn(c, cur, t.col);
         }
     }

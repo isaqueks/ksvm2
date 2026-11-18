@@ -127,6 +127,24 @@ TEST(every_opcode)
         { I(SYSCALL, 0, 0, 0x10), 0, "syscall 0x10" },
         { R(BRK, 0, 0, 0), 0, "brk" },
         { R(WFI, 0, 0, 0), 0, "wfi" },
+        { R(FADD, 1, 2, 3), 0, "fadd r1, r2, r3" },
+        { R(FSUB, 4, 5, 6), 0, "fsub r4, r5, r6" },
+        { R(FMUL, 1, 2, 3), 0, "fmul r1, r2, r3" },
+        { R(FDIV, 1, 2, 3), 0, "fdiv r1, r2, r3" },
+        { R(FMIN, 1, 2, 3), 0, "fmin r1, r2, r3" },
+        { R(FMAX, 1, 2, 3), 0, "fmax r1, r2, r3" },
+        { R(FSQRT, 1, 2, 0), 0, "fsqrt r1, r2" },
+        { R(FNEG, 1, 2, 0), 0, "fneg r1, r2" },
+        { R(FABS, 1, 2, 0), 0, "fabs r1, r2" },
+        { R(FRINT, 1, 2, 0), 0, "frint r1, r2" },
+        { R(FFLOOR, 1, 2, 0), 0, "ffloor r1, r2" },
+        { R(FCEIL, 1, 2, 0), 0, "fceil r1, r2" },
+        { R(FTRUNC, 1, 2, 0), 0, "ftrunc r1, r2" },
+        { R(FTOI, 1, 2, 0), 0, "ftoi r1, r2" },
+        { R(FTOU, 1, 2, 0), 0, "ftou r1, r2" },
+        { R(ITOF, 1, 2, 0), 0, "itof r1, r2" },
+        { R(UTOF, 1, 2, 0), 0, "utof r1, r2" },
+        { R(FCMP, 3, 4, 0), 0, "fcmp r3, r4" },
     };
     bool seen[256];
     size_t i;
@@ -224,6 +242,10 @@ TEST(non_canonical_as_word)
         { I(SHLI, 1, 2, 40), 0, ".word 0x00A0415B" },
         { I(SHRI, 1, 2, -1), 0, ".word 0xFFFC415D" },
         { I(SARI, 1, 2, 32), 0, ".word 0x0080415F" },
+        /* Extensão F: rc nas formas de dois operandos e em fcmp; 0xB2 livre. */
+        { R(FSQRT, 1, 2, 3), 0, ".word 0x000C41A6" },
+        { R(FCMP, 1, 2, 3), 0, ".word 0x000C41B1" },
+        { 0xB2u, 0, ".word 0x000000B2" },
     };
     char buf[KSVM_DISASM_BUF];
     size_t i;

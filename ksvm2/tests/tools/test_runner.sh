@@ -367,6 +367,50 @@ if [ -n "${KSAS:-}" ]; then
     expect_rc 1
     expect_in _stderr 'inc/sub/b.inc:2:3: erro: mnemonico desconhecido'
 
+    # Extensão F: as 18 instruções (três operandos, dois operandos, fcmp),
+    # fli e .float saem do ksdis --raw no formato que o ksas aceita e o
+    # binário volta idêntico; o runner executa e o código de saída confere.
+    begin roundtrip-float
+    cat >fl.ksasm <<'EOF'
+_start: fadd r1, r2, r3
+        fsub r4, r5, r6
+        fmul r7, r8, r9
+        fdiv r10, r11, r12
+        fmin r13, r14, r15
+        fmax r16, r17, r18
+        fsqrt r1, r2
+        fneg r3, r4
+        fabs r5, r6
+        frint r7, r8
+        ffloor r9, r10
+        fceil r11, r12
+        ftrunc r13, r14
+        ftoi r15, r16
+        ftou r17, r18
+        itof r19, r20
+        utof r21, r22
+        fcmp r23, r24
+        fli r5, 1.5
+        fli r6, 2.5
+        fadd r1, r5, r6
+        ftoi r1, r1
+        halt
+        .data
+f:      .float 1.5, -0.0, nan, 0x1p-149
+EOF
+    if "$KSAS" fl.ksasm -o fl.x.ksx 2>_stderr; then
+        roundtrip fl.x.ksx fl.y.ksx || fail "ksas recusou fl.x.ksx.s"
+        cmp -s fl.x.ksx fl.y.ksx || fail "ksas(ksdis(fl)) != fl"
+        expect_in fl.x.ksx.s 'fadd r1, r2, r3'
+        expect_in fl.x.ksx.s 'fsqrt r1, r2'
+        expect_in fl.x.ksx.s 'fcmp r23, r24'
+        expect_in fl.x.ksx.s 'movil r5, 0x3FC00000'
+        run empty "$KSVM" fl.x.ksx
+        expect_rc 4
+    else
+        fail "ksas recusou fl.ksasm"
+    fi
+
     for src in "$ROOT"/examples/*.ksasm "$ROOT"/examples/*/*.ksasm; do
         [ -f "$src" ] || continue
         for g in "" -g; do

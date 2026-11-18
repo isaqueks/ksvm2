@@ -454,6 +454,34 @@ static bool ps_la(ksas_ctx *c, ksas_cursor *cur, uint32_t col)
     return ksas_parse_expr(c, cur, &in.expr) && add_insn(c, col, &in);
 }
 
+/* fli rd, valor: MOVIL rd, bits binary32 do valor (sempre a forma longa:
+ * "fli r1, 1" carrega 1.0 = 0x3F800000, não o inteiro 1). */
+static bool ps_fli(ksas_ctx *c, ksas_cursor *cur, uint32_t col)
+{
+    ksas_insn in;
+    uint8_t rd;
+    uint32_t bits, vcol;
+
+    /* Avanços sem reportar TK_ERROR: "1.5" não é token (ksas_parse_float). */
+    if (cur->tok.kind != TK_REG) {
+        return ksas_perr(c, cur->tok.col, "esperado registrador");
+    }
+    rd = (uint8_t)cur->tok.value;
+    ksas_cur_advance(cur);
+    if (cur->tok.kind != TK_COMMA) {
+        return ksas_perr(c, cur->tok.col, "esperado ','");
+    }
+    ksas_cur_advance(cur);
+    vcol = cur->tok.col;
+    if (!ksas_parse_float(c, cur, &bits)) {
+        return false;
+    }
+    insn_init(&in, KSVM_OP_MOVIL);
+    in.ra = rd;
+    in.expr = ksas_const_node(c, bits, vcol);
+    return in.expr != KSAS_NONE && add_insn(c, col, &in);
+}
+
 /* clr rd = mov rd, zr */
 static bool ps_clr(ksas_ctx *c, ksas_cursor *cur, uint32_t col)
 {
@@ -505,8 +533,8 @@ static const struct {
     const char *name;
     pseudo_fn   fn;
 } pseudos[] = {
-    { "li", ps_li }, { "la", ps_la }, { "clr", ps_clr }, { "inc", ps_inc },
-    { "dec", ps_dec }, { "b", ps_b }, { "j", ps_j }
+    { "li", ps_li }, { "la", ps_la }, { "fli", ps_fli }, { "clr", ps_clr },
+    { "inc", ps_inc }, { "dec", ps_dec }, { "b", ps_b }, { "j", ps_j }
 };
 
 bool ksas_parse_insn(ksas_ctx *c, ksas_cursor *cur)

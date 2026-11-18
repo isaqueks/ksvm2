@@ -33,4 +33,10 @@ bool ksas_parse_expr(ksas_ctx *c, ksas_cursor *cur, uint32_t *node);
 /* Nó constante. */
 uint32_t ksas_const_node(ksas_ctx *c, uint32_t value, uint32_t col);
 
+/* Literal float (.float, fli) no token corrente -> bits binary32 (RNE,
+ * NaN canônico com o sinal pedido); deixa o cursor no token seguinte,
+ * avançado sem reportar TK_ERROR. O cursor deve ter chegado ao literal da
+ * mesma forma (ksas_cur_advance), porque "1.5" não é token do lexer. */
+bool ksas_parse_float(ksas_ctx *c, ksas_cursor *cur, uint32_t *bits);
+
 #endif /* KSAS_PARSER_H */
