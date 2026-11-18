@@ -23,3 +23,6 @@ Thumbs.db
 # Projeto irmao (compilador C), repositorio proprio
 /kscc/
 /bin/
+# Projeto irmao (VM na web), repositorio proprio
+/ksweb/
+/ksweb-review/
