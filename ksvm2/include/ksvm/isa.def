@@ -118,3 +118,26 @@ KSVM_OP(TRAP,    0x77, I, NONE, "fault TRAP com fault_addr = sext(imm14)")
 KSVM_OP(SYSCALL, 0x78, I, NONE, "chama o host com numero imm14 (14 bits sem sinal)")
 KSVM_OP(BRK,     0x79, R, NONE, "chama o hook de trace (se habilitado); senao NOP")
 KSVM_OP(WFI,     0x7A, R, NONE, "status = YIELD")
+
+/* 5.7 Extensão F (KSVM_ENABLE_FLOAT): IEEE 754 binary32 nos registradores
+ * inteiros, RNE, NaN canônico 0x7FC00000 (doc 04 §5.7). Três operandos
+ * "rd, ra, rb" (campos ra, rb, rc); dois "rd, rb" (ra, rb); FCMP "ra, rb"
+ * sem destino, como CMP. Desligada: FAULT_BAD_OPCODE. */
+KSVM_OP(FADD,    0xA0, R, NONE, "rd = ra + rb (float)")
+KSVM_OP(FSUB,    0xA1, R, NONE, "rd = ra - rb (float)")
+KSVM_OP(FMUL,    0xA2, R, NONE, "rd = ra * rb (float)")
+KSVM_OP(FDIV,    0xA3, R, NONE, "rd = ra / rb (float); x / 0 = +-inf")
+KSVM_OP(FMIN,    0xA4, R, NONE, "rd = min(ra, rb); um NaN: o outro; min(-0, +0) = -0")
+KSVM_OP(FMAX,    0xA5, R, NONE, "rd = max(ra, rb); um NaN: o outro; max(-0, +0) = +0")
+KSVM_OP(FSQRT,   0xA6, R, NONE, "rd = sqrt(rb); negativo -> NaN")
+KSVM_OP(FNEG,    0xA7, R, NONE, "rd = rb com o bit de sinal invertido")
+KSVM_OP(FABS,    0xA8, R, NONE, "rd = rb com o bit de sinal zerado")
+KSVM_OP(FRINT,   0xA9, R, NONE, "rd = inteiro mais proximo de rb (empate par), float")
+KSVM_OP(FFLOOR,  0xAA, R, NONE, "rd = floor(rb), float")
+KSVM_OP(FCEIL,   0xAB, R, NONE, "rd = ceil(rb), float")
+KSVM_OP(FTRUNC,  0xAC, R, NONE, "rd = trunc(rb), float")
+KSVM_OP(FTOI,    0xAD, R, NONE, "rd = (int32) rb, trunca e satura; NaN -> 0")
+KSVM_OP(FTOU,    0xAE, R, NONE, "rd = (uint32) rb, trunca e satura; NaN -> 0")
+KSVM_OP(ITOF,    0xAF, R, NONE, "rd = (float) (int32) rb, RNE")
+KSVM_OP(UTOF,    0xB0, R, NONE, "rd = (float) (uint32) rb, RNE")
+KSVM_OP(FCMP,    0xB1, R, ZNCV, "flags(ra ? rb): < N, == ZC, > C, unordered CV")

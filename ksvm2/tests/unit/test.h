@@ -78,7 +78,8 @@ void test_note(test_ctx *t, const char *fmt, ...);
     X(exec_arith) X(exec_logic) X(exec_branch) X(exec_sys) X(faults)       \
     X(loader) X(syscall)                                                    \
     X(conform_arith) X(conform_logic) X(conform_flow) X(conform_mem)        \
-    X(zero_reg) X(fault_effects) X(programs) X(snapshot) X(review_core)
+    X(zero_reg) X(fault_effects) X(programs) X(snapshot) X(review_core)     \
+    X(softfloat) X(exec_float)
 
 #define KSVM_TEST_DECLARE(name) SUITE(name);
 KSVM_TEST_SUITES(KSVM_TEST_DECLARE)

@@ -37,6 +37,16 @@
 #define KSVM_ENABLE_BITOPS 1
 #endif
 
+/* Extensão F (doc 04 §5.7): FADD..FCMP sobre IEEE 754 binary32 guardado
+ * nos registradores inteiros, em soft-float portável (softfloat.c, só
+ * inteiros). Desligada: os opcodes 0xA0..0xB1 geram KSVM_FAULT_BAD_OPCODE
+ * (continuam na tabela da ISA, para o assembler e o disassembler), CAPS
+ * não anuncia F e softfloat.c compila vazio. A porta AVR desliga (flash;
+ * doc 08 §4.2). */
+#ifndef KSVM_ENABLE_FLOAT
+#define KSVM_ENABLE_FLOAT 1
+#endif
+
 /* Grupo 3 de syscalls (arquivos). O núcleo só encaminha ao HAL; a chave
  * existe para que HALs saibam se devem implementá-lo. */
 #ifndef KSVM_ENABLE_SYSCALL_FS
@@ -59,7 +69,9 @@
 #endif
 
 /* 1 = MULH/MULHU sem uint64_t (quatro produtos parciais de 16 bits), para
- * compiladores embarcados sem inteiros de 64 bits ou para poupar flash. */
+ * compiladores embarcados sem inteiros de 64 bits ou para poupar flash.
+ * Vale também para FMUL/FDIV do soft-float (produto e quociente só com
+ * inteiros de 32 bits). */
 #ifndef KSVM_NO_INT64
 #define KSVM_NO_INT64 0
 #endif

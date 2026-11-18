@@ -49,4 +49,11 @@
 #define KSVM_NO_INT64 0
 #endif
 
+/* Extensão F desligada: o soft-float não cabe na meta RNF-04 de 12 KB
+ * (medido pelo size-avr, variante com-float; doc 08 §4.2). Os opcodes F
+ * geram KSVM_FAULT_BAD_OPCODE e CAPS não anuncia F. */
+#ifndef KSVM_ENABLE_FLOAT
+#define KSVM_ENABLE_FLOAT 0
+#endif
+
 #endif /* KSVM_CONFIG_USER_H */

@@ -60,6 +60,21 @@ enum ksvm_guest_err {
 
 #define KSVM_SYS_RET_ERROR UINT32_C(0xFFFFFFFF)   /* -1 em r1 */
 
+/* CAPS (doc 06 §3): r1 = número de syscall (0..0x3FFF) -> 1/0. Acima dessa
+ * faixa, que nunca é número de syscall, ficam consultas de capacidade:
+ * CAPS(KSVM_CAPS_ISA) devolve em r1 a máscara das extensões opcionais da
+ * ISA presentes nesta VM. */
+#define KSVM_CAPS_ISA   UINT32_C(0x4000)
+#define KSVM_CAPS_ISA_M UINT32_C(0x1)   /* MUL..REMU (KSVM_ENABLE_MULDIV) */
+#define KSVM_CAPS_ISA_B UINT32_C(0x2)   /* CLZ/CTZ/POPCNT (KSVM_ENABLE_BITOPS) */
+#define KSVM_CAPS_ISA_F UINT32_C(0x4)   /* extensão F (KSVM_ENABLE_FLOAT) */
+
+/* Máscara desta compilação. */
+#define KSVM_CAPS_ISA_BITS                                  \
+    ((KSVM_ENABLE_MULDIV ? KSVM_CAPS_ISA_M : UINT32_C(0)) | \
+     (KSVM_ENABLE_BITOPS ? KSVM_CAPS_ISA_B : UINT32_C(0)) | \
+     (KSVM_ENABLE_FLOAT ? KSVM_CAPS_ISA_F : UINT32_C(0)))
+
 /* Executa a syscall "num" (chamado por exec.c em SYSCALL). Pode mudar
  * vm->status (HALTED, YIELD, FAULT). */
 void ksvm_syscall(ksvm *vm, uint32_t num);

@@ -172,7 +172,7 @@ static bool sh_r2(ksas_ctx *c, ksas_cursor *cur, uint8_t op, uint32_t col)
     in.ra = rd;
     in.rb = rd;
     if (ksas_at_eol(cur)) {
-        if (op == KSVM_OP_MOV || op == KSVM_OP_CMP || op == KSVM_OP_TST) {
+        if (op == KSVM_OP_MOV || op == KSVM_OP_CMP || op == KSVM_OP_TST || op == KSVM_OP_FCMP) {
             return ksas_perr(c, cur->tok.col, "'%s' espera dois operandos",
                              ksas_op_lower(op, name, sizeof name));
         }

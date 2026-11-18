@@ -8,14 +8,15 @@
  *
  * Despacho: o nibble alto do opcode escolhe o grupo do doc 04 §5 (0x0
  * movimentação, 0x1 memória, 0x2 pilha, 0x3-0x4 aritmética, 0x5-0x6 lógica,
- * 0x7 fluxo); dentro do grupo há um switch por opcode.
+ * 0x7 fluxo, 0xA-0xB extensão F); dentro do grupo há um switch por opcode.
  *
  * Não implementados nesta versão (geram KSVM_FAULT_BAD_OPCODE): PUSHM/POPM
- * (opcionais, fase 5), e MUL/DIV/CLZ... quando desligados na config.
+ * (opcionais, fase 5), e MUL/DIV/CLZ.../F quando desligados na config.
  */
 #include "ksvm/alu.h"
 #include "ksvm/bus.h"
 #include "ksvm/isa.h"
+#include "ksvm/softfloat.h"
 #include "ksvm/syscall.h"
 #include "ksvm/vm.h"
 
@@ -358,6 +359,45 @@ static void exec_flow(ksvm *vm, const ksvm_insn *in, uint32_t *next_pc)
     }
 }
 
+/* ---- Grupos 0xA-0xB: extensão F (doc 04 §5.7) ------------------------- */
+
+#if KSVM_ENABLE_FLOAT
+/* Nada aqui falha (sem exceções IEEE) e nada altera flags, exceto FCMP.
+ * Operandos como nas inteiras: "rd, ra, rb" = campos ra, rb, rc;
+ * "rd, rb" = ra, rb; FCMP ra, rb = ra, rb (como CMP). */
+static void exec_float(ksvm *vm, const ksvm_insn *in)
+{
+    uint32_t a = reg(vm, in->rb), b = reg(vm, in->rc), r;
+
+    switch (in->op) {
+    case KSVM_OP_FADD:   r = ksvm_f32_add(a, b); break;
+    case KSVM_OP_FSUB:   r = ksvm_f32_sub(a, b); break;
+    case KSVM_OP_FMUL:   r = ksvm_f32_mul(a, b); break;
+    case KSVM_OP_FDIV:   r = ksvm_f32_div(a, b); break;
+    case KSVM_OP_FMIN:   r = ksvm_f32_min(a, b); break;
+    case KSVM_OP_FMAX:   r = ksvm_f32_max(a, b); break;
+    case KSVM_OP_FSQRT:  r = ksvm_f32_sqrt(a); break;
+    case KSVM_OP_FNEG:   r = ksvm_f32_neg(a); break;
+    case KSVM_OP_FABS:   r = ksvm_f32_abs(a); break;
+    case KSVM_OP_FRINT:  r = ksvm_f32_round_int(a, KSVM_F32_RNE); break;
+    case KSVM_OP_FFLOOR: r = ksvm_f32_round_int(a, KSVM_F32_FLOOR); break;
+    case KSVM_OP_FCEIL:  r = ksvm_f32_round_int(a, KSVM_F32_CEIL); break;
+    case KSVM_OP_FTRUNC: r = ksvm_f32_round_int(a, KSVM_F32_TRUNC); break;
+    case KSVM_OP_FTOI:   r = ksvm_f32_to_i32(a); break;
+    case KSVM_OP_FTOU:   r = ksvm_f32_to_u32(a); break;
+    case KSVM_OP_ITOF:   r = ksvm_i32_to_f32(a); break;
+    case KSVM_OP_UTOF:   r = ksvm_u32_to_f32(a); break;
+    case KSVM_OP_FCMP:
+        vm->cpu.flags = ksvm_f32_cmp(reg(vm, in->ra), a);   /* ZNCV inteiras */
+        return;
+    default:
+        bad_opcode(vm, in);
+        return;
+    }
+    set_reg(vm, in->ra, r);
+}
+#endif
+
 /* ---- Ciclo ------------------------------------------------------------ */
 
 static void execute(ksvm *vm, const ksvm_insn *in, uint32_t *next_pc)
@@ -369,6 +409,9 @@ static void execute(ksvm *vm, const ksvm_insn *in, uint32_t *next_pc)
     case 0x3: case 0x4: exec_arith(vm, in);          break;
     case 0x5: case 0x6: exec_logic(vm, in);          break;
     case 0x7:           exec_flow(vm, in, next_pc);  break;
+#if KSVM_ENABLE_FLOAT
+    case 0xA: case 0xB: exec_float(vm, in);          break;
+#endif
     default:            bad_opcode(vm, in);          break;
     }
 }

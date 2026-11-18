@@ -19,5 +19,6 @@
 #include "loader.h"
 #include "encode.h"
 #include "ksx_write.h"
+#include "softfloat.h"
 
 #endif /* KSVM_KSVM_H */

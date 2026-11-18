@@ -64,9 +64,10 @@ int main(void)
 
     memset(&t, 0, sizeof t);
     printf("KSVM testes unitarios (TRACE=%d NO_INT64=%d MAX_REGIONS=%d MULDIV=%d BITOPS=%d "
-           "ISA_COMPACT=%d ISA_NAMES=%d FAULT_NAMES=%d)\n",
+           "FLOAT=%d ISA_COMPACT=%d ISA_NAMES=%d FAULT_NAMES=%d)\n",
            KSVM_ENABLE_TRACE, KSVM_NO_INT64, KSVM_MAX_REGIONS, KSVM_ENABLE_MULDIV,
-           KSVM_ENABLE_BITOPS, KSVM_ISA_COMPACT, KSVM_ISA_NAMES, KSVM_FAULT_NAMES);
+           KSVM_ENABLE_BITOPS, KSVM_ENABLE_FLOAT, KSVM_ISA_COMPACT, KSVM_ISA_NAMES,
+           KSVM_FAULT_NAMES);
 #define KSVM_TEST_RUN_SUITE(name)                                         \
     before_run = t.tests_run;                                             \
     before_failed = t.tests_failed;                                       \

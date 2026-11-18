@@ -218,8 +218,11 @@ static shape op_shape(uint8_t op, uint8_t format)
     case KSVM_OP_MOV: case KSVM_OP_NEG: case KSVM_OP_NOT:
     case KSVM_OP_SXB: case KSVM_OP_SXH: case KSVM_OP_ZXB: case KSVM_OP_ZXH:
     case KSVM_OP_CLZ: case KSVM_OP_CTZ: case KSVM_OP_POPCNT:
+    case KSVM_OP_FSQRT: case KSVM_OP_FNEG: case KSVM_OP_FABS: case KSVM_OP_FRINT:
+    case KSVM_OP_FFLOOR: case KSVM_OP_FCEIL: case KSVM_OP_FTRUNC:
+    case KSVM_OP_FTOI: case KSVM_OP_FTOU: case KSVM_OP_ITOF: case KSVM_OP_UTOF:
         return SH_D_B;
-    case KSVM_OP_CMP: case KSVM_OP_TST:     return SH_A_B;
+    case KSVM_OP_CMP: case KSVM_OP_TST: case KSVM_OP_FCMP: return SH_A_B;
     case KSVM_OP_PUSH: case KSVM_OP_POP:    return SH_A;
     case KSVM_OP_JMPR: case KSVM_OP_CALLR:  return SH_B;
     case KSVM_OP_LDBX: case KSVM_OP_LDBSX: case KSVM_OP_LDHX:

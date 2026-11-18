@@ -109,6 +109,16 @@ static bool core_supports(const ksvm *vm, uint32_t num)
     }
 }
 
+/* r1 = número de syscall -> 1/0; r1 = KSVM_CAPS_ISA -> máscara das
+ * extensões da ISA (syscall.h). */
+static void sys_caps(ksvm *vm)
+{
+    uint32_t q = ksvm_arg(vm, 1u);
+
+    ksvm_ret(vm, (q == KSVM_CAPS_ISA) ? KSVM_CAPS_ISA_BITS : (core_supports(vm, q) ? 1u : 0u),
+             KSVM_ERR_OK);
+}
+
 static uint32_t version_word(void)
 {
     return ((uint32_t)KSVM_VERSION_MAJOR << 16) |
@@ -294,9 +304,7 @@ void ksvm_syscall(ksvm *vm, uint32_t num)
 {
     switch (num) {
     case KSVM_SYSCALL_EXIT:     ksvm_halt(vm, ksvm_arg(vm, 1u)); break;
-    case KSVM_SYSCALL_CAPS:
-        ksvm_ret(vm, core_supports(vm, ksvm_arg(vm, 1u)) ? 1u : 0u, KSVM_ERR_OK);
-        break;
+    case KSVM_SYSCALL_CAPS:     sys_caps(vm); break;
     case KSVM_SYSCALL_VERSION:  ksvm_ret(vm, version_word(), KSVM_ERR_OK); break;
     case KSVM_SYSCALL_YIELD:    vm->status = KSVM_YIELD; break;
     case KSVM_SYSCALL_ABORT:    ksvm_set_fault(vm, KSVM_FAULT_TRAP, ksvm_arg(vm, 1u)); break;

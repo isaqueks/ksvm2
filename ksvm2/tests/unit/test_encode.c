@@ -141,14 +141,18 @@ TEST(isa_table_matches_def)
         }
     }
     ASSERT_EQ(valid, count);
-    ASSERT_EQ(count, 85);                                   /* opcodes do doc 04 */
+    ASSERT_EQ(count, 103);                     /* opcodes do doc 04: 85 + 18 da extensão F */
 }
 
 TEST(reserved_opcodes_invalid)
 {
     ksvm_insn in;
     unsigned op;
-    for (op = 0x80; op < 0x100; op++) {                     /* F, plataforma, inválidos */
+    for (op = 0x80; op < 0x100; op++) {     /* reservados, resto de F, plataforma, inválidos */
+        if (op >= KSVM_OP_FADD && op <= KSVM_OP_FCMP) {
+            ASSERT_TRUE(ksvm_decode(op, 0u, &in));      /* extensão F: 0xA0..0xB1 */
+            continue;
+        }
         ASSERT_FALSE(ksvm_decode(op, 0u, &in));
     }
     ASSERT_FALSE(ksvm_decode(0x09u, 0u, &in));

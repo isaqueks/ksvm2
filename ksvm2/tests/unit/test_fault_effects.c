@@ -127,6 +127,9 @@ TEST(bad_opcode_every_unassigned_byte)
 #if !KSVM_ENABLE_BITOPS
         bad |= (op >= KSVM_OP_CLZ && op <= KSVM_OP_POPCNT);
 #endif
+#if !KSVM_ENABLE_FLOAT
+        bad |= (op >= KSVM_OP_FADD && op <= KSVM_OP_FCMP);
+#endif
         if (!bad) continue;
         for (k = 0; k < 3u; k++) {
             static const uint32_t hi[3] = { 0x00000000u, 0xFFFFFF00u, 0x5A5A5A00u };

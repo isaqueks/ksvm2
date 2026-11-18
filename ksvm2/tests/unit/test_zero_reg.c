@@ -83,6 +83,26 @@ static const zr_insn writers[] = {
     { KSVM_OP_CTZ,   K_R2, 0, 0 },
     { KSVM_OP_POPCNT, K_R2, 0, 0 },
 #endif
+#if KSVM_ENABLE_FLOAT
+    /* r2 = 0x00010081 e r3 = 5 são subnormais: nenhum resultado é o sentinela */
+    { KSVM_OP_FADD,  K_R3, 0, 0 },
+    { KSVM_OP_FSUB,  K_R3, 0, 0 },
+    { KSVM_OP_FMUL,  K_R3, 0, 0 },
+    { KSVM_OP_FDIV,  K_R3, 0, 0 },
+    { KSVM_OP_FMIN,  K_R3, 0, 0 },
+    { KSVM_OP_FMAX,  K_R3, 0, 0 },
+    { KSVM_OP_FSQRT, K_R2, 0, 0 },
+    { KSVM_OP_FNEG,  K_R2, 0, 0 },
+    { KSVM_OP_FABS,  K_R2, 0, 0 },
+    { KSVM_OP_FRINT, K_R2, 0, 0 },
+    { KSVM_OP_FFLOOR, K_R2, 0, 0 },
+    { KSVM_OP_FCEIL, K_R2, 0, 0 },
+    { KSVM_OP_FTRUNC, K_R2, 0, 0 },
+    { KSVM_OP_FTOI,  K_R2, 0, 0 },
+    { KSVM_OP_FTOU,  K_R2, 0, 0 },
+    { KSVM_OP_ITOF,  K_R2, 0, 0 },
+    { KSVM_OP_UTOF,  K_R2, 0, 0 },
+#endif
 };
 #define N_WRITERS (sizeof writers / sizeof writers[0])
 
@@ -94,12 +114,18 @@ static const uint8_t non_writers[] = {
     KSVM_OP_CMP, KSVM_OP_CMPI, KSVM_OP_CMPL, KSVM_OP_TST, KSVM_OP_TSTI,
     KSVM_OP_JMP, KSVM_OP_JMPR, KSVM_OP_BCOND, KSVM_OP_CALL, KSVM_OP_CALLR, KSVM_OP_RET,
     KSVM_OP_HALT, KSVM_OP_TRAP, KSVM_OP_SYSCALL, KSVM_OP_BRK, KSVM_OP_WFI,
+    KSVM_OP_FCMP,
 #if !KSVM_ENABLE_MULDIV
     KSVM_OP_MUL, KSVM_OP_MULI, KSVM_OP_MULH, KSVM_OP_MULHU,
     KSVM_OP_DIV, KSVM_OP_DIVU, KSVM_OP_REM, KSVM_OP_REMU,
 #endif
 #if !KSVM_ENABLE_BITOPS
     KSVM_OP_CLZ, KSVM_OP_CTZ, KSVM_OP_POPCNT,
+#endif
+#if !KSVM_ENABLE_FLOAT
+    KSVM_OP_FADD, KSVM_OP_FSUB, KSVM_OP_FMUL, KSVM_OP_FDIV, KSVM_OP_FMIN, KSVM_OP_FMAX,
+    KSVM_OP_FSQRT, KSVM_OP_FNEG, KSVM_OP_FABS, KSVM_OP_FRINT, KSVM_OP_FFLOOR,
+    KSVM_OP_FCEIL, KSVM_OP_FTRUNC, KSVM_OP_FTOI, KSVM_OP_FTOU, KSVM_OP_ITOF, KSVM_OP_UTOF,
 #endif
 };
 

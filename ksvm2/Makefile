@@ -9,9 +9,10 @@
 #   make clean
 #
 # A config "alt" liga caminhos que a padrão não exercita: hook de trace,
-# MULH sem uint64_t e só 3 regiões no barramento. A config "min" é a de MCU
-# pequeno: sem MUL/DIV nem CLZ/CTZ/POPCNT (viram BAD_OPCODE), sem nomes de
-# opcode/fault e com a tabela compacta da ISA (1 byte por opcode).
+# MULH e FMUL/FDIV sem uint64_t e só 3 regiões no barramento. A config "min"
+# é a de MCU pequeno: sem MUL/DIV, CLZ/CTZ/POPCNT nem extensão F (viram
+# BAD_OPCODE), sem nomes de opcode/fault e com a tabela compacta da ISA (1
+# byte por opcode).
 
 CC       = gcc
 AR       = ar
@@ -33,8 +34,8 @@ CFLAGS   = $(CSTD) $(OPT) $(WARN) $(SAN)
 DEPFLAGS = -MMD -MP
 
 ALT_DEFS = -DKSVM_ENABLE_TRACE=1 -DKSVM_NO_INT64=1 -DKSVM_MAX_REGIONS=3
-MIN_DEFS = -DKSVM_ENABLE_MULDIV=0 -DKSVM_ENABLE_BITOPS=0 -DKSVM_ISA_NAMES=0 \
-           -DKSVM_FAULT_NAMES=0 -DKSVM_ISA_COMPACT=1
+MIN_DEFS = -DKSVM_ENABLE_MULDIV=0 -DKSVM_ENABLE_BITOPS=0 -DKSVM_ENABLE_FLOAT=0 \
+           -DKSVM_ISA_NAMES=0 -DKSVM_FAULT_NAMES=0 -DKSVM_ISA_COMPACT=1
 ASAN     = -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
 
 CORE_SRC = $(wildcard src/core/*.c)
